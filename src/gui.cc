@@ -162,7 +162,7 @@ void Gui::setRandomModulePosition(Module *mod) {
 }
 
 void Gui::DrawModules(bool force_refresh) {
-  SDL_Rect update, pos, car, trect;
+  SDL_Rect update, pos, car;
   SDL_Color font_color = { 255, 255, 255, 255 };
   SDL_Surface *font = NULL;
   char id_buf[16];

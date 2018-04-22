@@ -1,0 +1,7 @@
+udsim
+*~
+*.dump
+*.d
+*.o
+*.swp
+*.cfg

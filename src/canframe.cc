@@ -8,12 +8,12 @@ CanFrame::CanFrame(struct canfd_frame *cf) {
   _cf = cf;
 }
 
-// Expects format 123#010203
+// Expects format 123#010203,...
 CanFrame::CanFrame(string packet) {
-  int i,pos;
+  unsigned int i, c;
+  size_t pos;
   stringstream ss;
   string idstr, idata, byte, ext, epkt;
-  unsigned int c;
   pos = packet.find(',');
   ext = packet;
   // Does the packet contian extended info?
@@ -70,6 +70,13 @@ string CanFrame::str() {
     pkt << setfill('0') << setw(2) << hex << (int)data[i];
   }
   return pkt.str();
+}
+
+// returns 1 when frames are equal
+int CanFrame::framesmatch(CanFrame *f2){
+	if(can_id!=f2->can_id || len!=f2->len) return 0;
+	for(int i=0; i<len; i++) if(data[i]!=f2->data[i]) return 0;
+	return 1;
 }
 
 // estr - Extended string

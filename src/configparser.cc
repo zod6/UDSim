@@ -18,8 +18,10 @@ bool ConfigParser::parse(string config) {
   stringstream ss;
   Module *mod = NULL;
   int id;
-  int pos;
+  //int pos;
+  size_t pos;
   filename = config;
+  _state = CONF_STATE_GLOBALS;
   conf.open(filename);
   while(getline(conf, line)) {
     // Remove comment character ';'

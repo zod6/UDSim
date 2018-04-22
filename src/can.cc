@@ -126,7 +126,7 @@ bool Can::Init() {
 
   if (bind(_canfd, (struct sockaddr *)&_addr, sizeof(_addr)) < 0) {
         perror("bind");
-        false;
+        return false;
   }
   return true;
 }
@@ -158,12 +158,14 @@ vector <CanFrame *>Can::getPackets() {
     timeo.tv_sec  = 0;
     //timeo.tv_usec = 10000 * 20; // 20 ms  
     //timeo.tv_usec = 10000; // 1 ms  
-    timeo.tv_usec = 0; // Don't wait  
+	// waiting for 1ms helps to reduce CPU
+    timeo.tv_usec = 1000;
 
     if ((ret = select(_canfd+1, &rdfs, NULL, NULL, &timeo)) < 0) {
       cout << "Error: Interface is probably down" << endl;
       return packets;
     }
+	if(!ret) return packets;
     if (FD_ISSET(_canfd, &rdfs)) {
       nbytes = recvmsg(_canfd, &msg, 0);
       if (nbytes < 0) {
@@ -181,16 +183,19 @@ vector <CanFrame *>Can::getPackets() {
 }
 
 void Can::sendPackets(vector <CanFrame *>pkts) {
-  struct canfd_frame cf;
-  int i, nbytes;
-  for(vector<CanFrame *>::iterator it = pkts.begin(); it != pkts.end(); ++it) {
-    CanFrame *pkt = *it;
-    cf.can_id = pkt->can_id;
-    cf.len = pkt->len;
-    for(i=0; i < pkt->len; i++) {
-       cf.data[i] = pkt->data[i];
-    }
-    nbytes = write(_canfd, &cf, CAN_MTU);
-    if(nbytes < 0) cout << "ERROR writing CAN packet" << endl;
-  }
+	struct canfd_frame cf;
+	int i, nbytes;
+	for(vector<CanFrame *>::iterator it = pkts.begin(); it != pkts.end(); ++it) {
+		CanFrame *pkt = *it;
+		cf.can_id = pkt->can_id;
+		cf.len = pkt->len;
+		printf("> %03X [%d] ", pkt->can_id, pkt->len);
+		for(i=0; i < pkt->len; i++) {
+			cf.data[i] = pkt->data[i];
+			printf("%02X ", pkt->data[i]);
+		}
+		cout << endl;
+		nbytes = write(_canfd, &cf, CAN_MTU);
+		if(nbytes < 0) cout << "ERROR writing CAN packet" << endl;
+	}
 }

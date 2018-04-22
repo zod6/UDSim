@@ -46,12 +46,16 @@ class Module
   float confidence();
   void setPositiveResponderID(int i) { positive_responder_id = i; }
   int getPositiveResponder() { return positive_responder_id; }
+  int getPositiveResponder(struct canfd_frame *); // also works for BMW
   void setNegativeResponderID(int i) { negative_responder_id = i; }
   int getNegativeResponder() { return negative_responder_id; }
+  int getNegativeResponder(struct canfd_frame *); // also works for BMW
   void setResponder(bool v) { responder = v; }
   bool isResponder() { return responder; }
   void addPacket(struct canfd_frame *);
   void addPacket(string);
+  void addPacket_front(string);
+  void repair_queue(CanFrame *);
   vector <CanFrame *>getHistory() { return can_history; }
   vector <CanFrame *>getPacketsByBytePos(unsigned int, unsigned char);
   bool foundResponse(Module *);
@@ -79,21 +83,20 @@ class Module
   void setFuzzLevel(unsigned int);
   unsigned char calc_vin_checksum(char *, int);
   vector <CanFrame *>inject_vin_checksum(vector <CanFrame *>);
-  vector <CanFrame *>fetchHistory(struct canfd_frame *);
-  vector <CanFrame *>fetchHistorySubfunc(struct canfd_frame *);
-  vector <CanFrame *>genericHandler(struct canfd_frame *);
+  vector <CanFrame *>fetchHistory(struct canfd_frame *, int);
   vector <CanFrame *>showCurrentData(vector <CanFrame *>, struct canfd_frame *);
   vector <CanFrame *>vehicleInfoRequest(vector <CanFrame *>, struct canfd_frame *);
   vector <CanFrame *>fuzzResp(vector <CanFrame *>, struct canfd_frame *);
   CanFrame *createPacket(int, char *, int);
   void setActiveTicks(int i) { _activeTicks = i; }
-  int getActiveTicks() { return _activeTicks; }
+  unsigned int getActiveTicks() { return _activeTicks; }
+  void queue_assign(vector <CanFrame *> v, int offset){ _queue.assign(v.begin() + offset, v.end()); }
  private:
   int arbId;
   int matched_isotp = 0;
   int missed_isotp = 0;
-  bool padding = false;
-  char padding_byte;
+  bool padding = false; // not used. yet
+  char padding_byte;	// not used. yet
   bool responder = false;
   int state = STATE_IDLE;
   int _activeTicks = 0;
@@ -103,6 +106,9 @@ class Module
   SDL_Texture *id_texture = NULL;
   vector<CanFrame *>can_history;
   vector<CanFrame *>_queue;
+  bool _expect_consecutive_frame = false;
+  CanFrame *_repair_frame = NULL; // sometimes we have missing packets. try to repair queue
+  unsigned int _repair_frame_num = 0;
   int positive_responder_id = -1;
   int negative_responder_id = -1;
   unsigned int _fuzz_level = 0;

@@ -39,6 +39,7 @@ string LogParser::processNext() {
     } else {
       log_eof = false;
       log_opened = true;
+	  return "logfile: " + logfile;
     }
   } else {  // Log already opened
     /* read first non-comment frame from logfile */
@@ -55,9 +56,9 @@ string LogParser::processNext() {
       }
       gd.getCan()->parse_canframe(ascframe, &cf);
       gd.processPkt(&cf);
-      return "Packet: " + string(ascframe);
+      if(gd.getVerbose()) return "Packet: " + string(ascframe);
+	  else return "";
     }
-
   }
   return "Finsihed processing logfile";
 }

@@ -38,7 +38,7 @@ class GameData
     vector<Module *> get_possible_active_modules();
     void setMode(int);
     int getMode() { return mode; }
-    int setVerbose(int v) { verbose = v; }
+    void setVerbose(int v) { verbose = v; }
     int getVerbose() { return verbose; }
     void setCan(Can *c) { canif = c; }
     Can *getCan() { return canif; }
@@ -52,6 +52,10 @@ class GameData
     void processCan();
     int string2hex(string);
     int string2int(string);
+	int random_packet=1;
+	char conf_file[61];
+	int autoresponse=0; // respond 0x11 to every 0x22 packet
+	int autowrite=0;	// confirm every 0x2E packet
   private:
     void HandleSim(canfd_frame *);
     void LearnPacket(canfd_frame *);
@@ -64,6 +68,9 @@ class GameData
     int _lastTicks = 0;
     Can *canif = NULL;
     Gui *_gui = NULL;
+	canfd_frame multiquery; // buffer first packet to play it later
+	int multiquery_cnt=0;
 };
+
 
 #endif
