@@ -27,6 +27,7 @@ class CanFrame {
     struct canfd_frame *toFrame();
     vector<CanFrame *>queue;
 	int framesmatch(CanFrame*);
+	int framesmatch(canfd_frame*);
   private:
     struct canfd_frame *_cf = NULL;
 };

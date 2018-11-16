@@ -1,3 +1,4 @@
+#ifdef SDL
 #include "gui.h"
 
 Gui::Gui() {
@@ -730,4 +731,4 @@ void Gui::DrawInfoCard() {
     }
   }
 }
-
+#endif

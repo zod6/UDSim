@@ -5,8 +5,19 @@
 #include <vector>
 #include <stdlib.h>
 #include <string.h>
+#ifdef SDL
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+#endif
+
+extern const char *Protocol_str[]; // module.cc
+
+// also update Protocol_str in gamedata.cc
+enum Protocol {
+	UDS,
+	BMW,	// UDS through 0x6F1
+	TP20	// VAG
+};
 
 #include "gamedata.h"
 #include "canframe.h"
@@ -21,9 +32,6 @@ extern GameData gd;
 #define STATE_ACTIVE    1
 #define STATE_MOUSEOVER 2
 #define STATE_SELECTED  3
-
-#define MODULE_TYPE_UNKNOWN 0
-#define MODULE_TYPE_GM      1
 
 #define MODULE_H 30
 #define MODULE_W 35
@@ -53,23 +61,25 @@ class Module
   void setResponder(bool v) { responder = v; }
   bool isResponder() { return responder; }
   void addPacket(struct canfd_frame *);
+  void addPacket_TP20(struct canfd_frame *);
   void addPacket(string);
   void addPacket_front(string);
-  void repair_queue(CanFrame *);
+  void repair_queue(struct canfd_frame *);
   vector <CanFrame *>getHistory() { return can_history; }
+  vector <CanFrame *> *getHistory_ptr() { return &can_history; }
   vector <CanFrame *>getPacketsByBytePos(unsigned int, unsigned char);
   bool foundResponse(Module *);
-  int getState();
-  void setState(int s);
+  int getState();		// for GUI
+  void setState(int s); // for GUI
   int getX() { return _x; }
   int getY() { return _y; }
   void setX(int x) { _x = x; }
   void setY(int y) { _y = y; }
+#ifdef SDL
   SDL_Texture *getIdTexture() { return id_texture; }
   void setIdTexture(SDL_Texture *t) { id_texture = t; }
+#endif
   vector <CanFrame *>getResponse(struct canfd_frame *,bool);
-  void setType(int t) { _type = t; }
-  int getType() { return _type; }
   void toggleFakeResponses() { _fake_responses ? _fake_responses = false : _fake_responses = true; }
   void setFakeResponses(bool t) { _fake_responses = t; }
   bool getFakeResponses() { return _fake_responses; }
@@ -90,7 +100,11 @@ class Module
   CanFrame *createPacket(int, char *, int);
   void setActiveTicks(int i) { _activeTicks = i; }
   unsigned int getActiveTicks() { return _activeTicks; }
-  void queue_assign(vector <CanFrame *> v, int offset){ _queue.assign(v.begin() + offset, v.end()); }
+  void queue_set(vector <CanFrame *> v, int offset){ _queue.assign(v.begin() + offset, v.end()); }
+  vector <CanFrame *> *queue_get() { return &_queue; }
+  void setProtocol(Protocol p){ _protocol=p; }
+  void setProtocol(const char*);
+  Protocol getProtocol(){ return _protocol; }
  private:
   int arbId;
   int matched_isotp = 0;
@@ -102,8 +116,9 @@ class Module
   int _activeTicks = 0;
   int _x = 0;
   int _y = 0;
-  int _type = 0;
+#ifdef SDL
   SDL_Texture *id_texture = NULL;
+#endif
   vector<CanFrame *>can_history;
   vector<CanFrame *>_queue;
   bool _expect_consecutive_frame = false;
@@ -115,6 +130,7 @@ class Module
   bool _fake_responses = false;
   bool _fuzz_vin = false;
   bool _ignore = false;
+  Protocol _protocol = UDS;
 };
 
 #endif

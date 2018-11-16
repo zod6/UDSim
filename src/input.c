@@ -5,15 +5,22 @@
 #include <termios.h>
 #include "input.h" 
 
+#define INPUT_LEN 200
 struct termios orig_termios;
-char input[101];
+char input[INPUT_LEN+1];
 int input_pos=0;
 
 void processInput(){
-	char c;
+	unsigned char c;
+	unsigned int r;
+    struct timeval tv = { 0L, 0L };
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(0, &fds);
 
-	if (kbhit()) {
-		c=getch();
+	if (select(1, &fds, NULL, NULL, &tv)) {
+		if ((r = read(0, &c, sizeof(c))) < 0) c=r;
+
 		if(c=='q'){
 			exit(0);
 		} else if(c=='s'){
@@ -21,13 +28,13 @@ void processInput(){
 		} else if(c=='p'){ // works only for single-packet response
 			gd.random_packet^=1;
 			cout << "random: " << gd.random_packet << endl;
-		} else if( 0 && c=='i'){
-			Module *module = gd.get_module(1917);
+		} else if( 0 && c=='i'){ // some debugging
+			Module *module = gd.get_module(0x222);
 			if(module){
 				vector<CanFrame *> it = module->getHistory();
 				for(vector<CanFrame*>::iterator i = it.begin(); i != it.end(); ++i){
 					CanFrame *old = *i;
-					cout << old->str() << endl;
+					cout << old->str() << " | " << module->getProtocol() << endl;
 				}
 			}
 		} else if(c=='r'){
@@ -44,8 +51,8 @@ void processInput(){
 		} else {
 			input[input_pos++]=c;
 			input[input_pos]=0;
-			if(input[input_pos-1]=='\n' || input_pos>=100){
-				if(input_pos<101) input[input_pos]=0; else input[100]=0;
+			if(input[input_pos-1]=='\n' || input_pos>=INPUT_LEN){
+				if(input_pos<=INPUT_LEN) input[input_pos]=0; else input[INPUT_LEN]=0;
 				if(input[3]=='#' && input_pos>=8){
 					input[3]=0;
 					Module *module = gd.get_module(strtol(input,NULL,16));
@@ -81,20 +88,5 @@ void set_conio_terminal_mode(){
     atexit(reset_terminal_mode);
 //    cfmakeraw(&new_termios);
     tcsetattr(0, TCSANOW, &new_termios);
-}
-
-int kbhit(){
-    struct timeval tv = { 0L, 0L };
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(0, &fds);
-    return select(1, &fds, NULL, NULL, &tv);
-}
-
-int getch(){
-    int r;
-    unsigned char c;
-    if ((r = read(0, &c, sizeof(c))) < 0) return r;
-    else return c;
 }
 

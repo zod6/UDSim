@@ -1,6 +1,24 @@
 #ifndef UDSSIM_GUI_H
 #define UDSSIM_GUI_H
 
+#ifndef SDL
+class Gui {
+	public:
+		int Init(){ return 1; }
+		void setStatus(std::string x){}
+		void DrawModules(bool b=false){}
+		bool isModuleOverlapping(void *a){ return false; }
+		void setRandomModulePosition(void *a){}
+		void Redraw(){}
+		void Msg(std::string){}
+		void setFullscreen(bool t) {}
+		void setVerbose(int v) {}
+		int HandleEvents(){ return 1; }
+		void HandleAnimations(){}
+};
+
+#else
+
 #include <vector>
 #include <iostream>
 #include <string>
@@ -160,5 +178,7 @@ class Gui {
   TTF_Font *log_ttf = NULL;
   TTF_Font *title_ttf = NULL;
 };
+
+#endif // ifdef SDL
 
 #endif

@@ -9,7 +9,10 @@
 #include <vector>
 #include <list>
 #include "module.h"
+#include "math.h"
+//#ifdef SDL
 #include "gui.h"
+//#endif
 #include "can.h"
 
 using namespace std;
@@ -21,6 +24,16 @@ using namespace std;
 #define CONFIDENCE_THRESHOLD 0.6 // 60%
 
 #define CAN_DELAY 1000 * 10
+
+enum Car_Type {
+	NONE, // scan all possibilities
+	AUTO, // fist match defines car type (default)
+	VAG,
+	//BMW,
+	GM,
+	MB,
+	RENAULT
+};
 
 class Gui;
 class Module;
@@ -56,13 +69,15 @@ class GameData
 	char conf_file[61];
 	int autoresponse=0; // respond 0x11 to every 0x22 packet
 	int autowrite=0;	// confirm every 0x2E packet
+	Car_Type car_type=AUTO;
   private:
-    void HandleSim(canfd_frame *);
+    void HandleSim(canfd_frame *, int);
+	void Handle_TP20(canfd_frame *, Module *);
     void LearnPacket(canfd_frame *);
-    void AttackPacket(canfd_frame *);
     void pruneModules();
     Module *isPossibleISOTP(canfd_frame *);
     void processLearned();
+	int process_TP20(Module *it);
     int mode = MODE_SIM;
     int verbose = 0;
     int _lastTicks = 0;
@@ -70,7 +85,7 @@ class GameData
     Gui *_gui = NULL;
 	canfd_frame multiquery; // buffer first packet to play it later
 	int multiquery_cnt=0;
+	Protocol _lastprotocol=UDS;
 };
-
 
 #endif

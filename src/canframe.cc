@@ -58,7 +58,7 @@ CanFrame::CanFrame() {
 }
 
 CanFrame::~CanFrame() {
-  if(_cf) free(_cf);
+	// free queue?
 }
 
 // Convert basic canframe to a string
@@ -74,6 +74,12 @@ string CanFrame::str() {
 
 // returns 1 when frames are equal
 int CanFrame::framesmatch(CanFrame *f2){
+	if(can_id!=f2->can_id || len!=f2->len) return 0;
+	for(int i=0; i<len; i++) if(data[i]!=f2->data[i]) return 0;
+	return 1;
+}
+
+int CanFrame::framesmatch(canfd_frame* f2){
 	if(can_id!=f2->can_id || len!=f2->len) return 0;
 	for(int i=0; i<len; i++) if(data[i]!=f2->data[i]) return 0;
 	return 1;

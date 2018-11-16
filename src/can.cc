@@ -156,10 +156,7 @@ vector <CanFrame *>Can::getPackets() {
     FD_ZERO(&rdfs);
     FD_SET(_canfd, &rdfs);
     timeo.tv_sec  = 0;
-    //timeo.tv_usec = 10000 * 20; // 20 ms  
-    //timeo.tv_usec = 10000; // 1 ms  
-	// waiting for 1ms helps to reduce CPU
-    timeo.tv_usec = 1000;
+    timeo.tv_usec = 1000; // waiting for 1ms helps to reduce CPU
 
     if ((ret = select(_canfd+1, &rdfs, NULL, NULL, &timeo)) < 0) {
       cout << "Error: Interface is probably down" << endl;

@@ -1,45 +1,39 @@
-CC=g++
-# -ggdb
-CFLAGS=-std=gnu++11 -MMD -MP -I/usr/include/SDL2 -Iinclude -Wall -O2
-LDFLAGS=-lSDL2 -lSDL2_image -lSDL2_ttf
-OBJS=main.o gui.o logparser.o module.o gamedata.o can.o canframe.o icon-button.o configparser.o input.o
-DEP         := $(OBJS:.o=.d)
+BIN ?= udsim
+CC = g++
+CFLAGS = -std=gnu++11 -Iinclude -Wall -O2
+X86_PARAMS ?= -DSDL -I/usr/include/SDL2
+LDFLAGS ?= -lSDL2 -lSDL2_image -lSDL2_ttf
+#OBJS = main.o gui.o logparser.o module.o gamedata.o can.o canframe.o icon-button.o configparser.o input.o
+SRCS = $(wildcard *.cc) $(wildcard *.c)
+OBJS := $(addsuffix .o,$(basename $(SRCS)))
+#OBJS = $(patsubst %.cc, %.o, $(SRCS))
 
-all: udsim
+DEP := $(OBJS:.o=.d)
+
+all: $(BIN)
+
 -include $(DEP)
 
-main.o:
-	$(CC) $(CFLAGS) -c main.cc
+$(BIN): $(OBJS)
+	$(TOOLCHAIN)$(CC) $(X86_PARAMS) $(CFLAGS) $(LDFLAGS) $(OBJS) -o $(BIN)
 
-gui.o:
-	$(CC) $(CFLAGS) -c gui.cc
+%.o: %.cc Makefile
+	$(TOOLCHAIN)$(CC) $(X86_PARAMS) -c -MMD $(CFLAGS) -o $@ $<
 
-logparser.o:
-	$(CC) $(CFLAGS) -c logparser.cc
-
-module.o:
-	$(CC) $(CFLAGS) -c module.cc
-
-can.o:
-	$(CC) $(CFLAGS) -c can.cc
-
-canframe.o:
-	$(CC) $(CFLAGS) -c canframe.cc
-
-icon-button.o:
-	$(CC) $(CFLAGS) -c icon-button.cc
-
-configparser.o:
-	$(CC) $(CFLAGS) -c configparser.cc
-
-gamedata.o:
-	$(CC) $(CFLAGS) -c gamedata.cc
-
-input.o:
-	$(CC) $(CFLAGS) -c input.c
-
-udsim: $(OBJS)
-	$(CC) -o udsim $(OBJS) $(LDFLAGS)
+%.o: %.c
+	$(TOOLCHAIN)$(CC) $(X86_PARAMS) -c -MMD $(CFLAGS) -o $@ $<
 
 clean:
-	rm -f udsim *.o *.d
+	rm -f $(BIN) *.o *.d
+
+x86:
+	make clean
+	make all TOOLCHAIN=
+
+mipsel:
+	make clean
+	make all TOOLCHAIN="/opt/mipsel-linux/bin/mipsel-linux-" X86_PARAMS="-mips32r2" BIN="$(BIN)-mipsel" LDFLAGS=""
+
+upload:
+	scp $(BIN)-mipsel can-lan:/data
+

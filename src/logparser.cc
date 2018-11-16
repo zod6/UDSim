@@ -52,11 +52,12 @@ string LogParser::processNext() {
       log_eof = true; 
     } else {
       if (sscanf(buf, "(%ld.%ld) %s %s", &log_tv.tv_sec, &log_tv.tv_usec, device, ascframe) != 4) {
+		  printf("%s\n",buf);
         return "incorrect line format in logfile";
       }
       gd.getCan()->parse_canframe(ascframe, &cf);
       gd.processPkt(&cf);
-      if(gd.getVerbose()) return "Packet: " + string(ascframe);
+      if(gd.getVerbose()>1) return "Packet: " + string(ascframe);
 	  else return "";
     }
   }

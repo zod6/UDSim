@@ -15,8 +15,9 @@ void Usage(string msg) {
  cout << "     -l <logfile>        Parse candump log to generate learning DB" << endl;
  cout << "     -f                  Fullscreen" << endl;
  cout << "     -g                  without GUI" << endl;
- cout << "     -z                  answer 0x11 to every unknown read data response" << endl;
- cout << "     -x                  confirm every write data reponse" << endl;
+ cout << "     -z                  answer 0x01010101 to every unknown 'read data' request (can be toggled when running)" << endl;
+ cout << "     -t                  car manufacturer. possible answers are 'NONE', 'AUTO', 'VAG', 'GM', 'MB', 'RENAULT'" << endl;
+ cout << "     -x                  send 'confirm' to every 'write data' request (can be toggled when running)" << endl;
  cout << "     -v                  Increase verbosity" << endl;
  cout << endl;
 }
@@ -32,7 +33,7 @@ int main(int argc, char *argv[]) {
 
 	cout << "UDSim " << VERSION << endl;
 
-	while ((opt = getopt(argc, argv, "vfc:l:gh?")) != -1) {
+	while ((opt = getopt(argc, argv, "vfc:l:gt:h?")) != -1) {
 		switch(opt) {
 			case 'v':
 				verbose++;
@@ -62,6 +63,15 @@ int main(int argc, char *argv[]) {
 			case 'x':
 				gd.autowrite=1;
 				break;
+			case 't':
+				if(!strcasecmp(optarg, "NONE")) gd.car_type=NONE;
+				else if(!strcasecmp(optarg, "AUTO")) gd.car_type=AUTO;
+				else if(!strcasecmp(optarg, "VAG")) gd.car_type=VAG;
+				else if(!strcasecmp(optarg, "GM")) gd.car_type=GM;
+				else if(!strcasecmp(optarg, "MB")) gd.car_type=MB;
+				else if(!strcasecmp(optarg, "RENAULT")) gd.car_type=RENAULT;
+				else Usage("Unknown manufacturer none/auto/vag/gm/mb/renault");
+				break;
 			default:
 				Usage("Help Menu");
 				exit(1);
@@ -80,7 +90,7 @@ int main(int argc, char *argv[]) {
 		return 20;
 	}
 
-	cout << "'p': toggle between persistent and random andswers" << endl;
+	cout << "'p': toggle between persistent and random answers" << endl;
 	cout << "'r': reload config" << endl;
 	cout << "'s': save config" << endl;
 	cout << "'z': answer 0x01010101 to every unknown read data response" << endl;

@@ -97,7 +97,7 @@ void ConfigParser::parseModule(Module *mod, string line, int pos) {
   } else if(field == "responder") {
     ss >> responder;
     mod->setResponder(responder);
-  } else if(field == "possitiveID") {
+  } else if(field == "positiveID") {
     id = gd.string2hex(value);
     mod->setPositiveResponderID(id);
   } else if(field == "negativeID") {
@@ -112,6 +112,8 @@ void ConfigParser::parseModule(Module *mod, string line, int pos) {
   } else if(field == "fuzz_level") {
     ss >> fuzz_level;
     mod->setFuzzLevel(fuzz_level);
+  } else if(field == "protocol") {
+	  mod->setProtocol(ss.str().c_str()+1);
   }else {
     cout << "config error: Unknown field " << field << endl;
   }

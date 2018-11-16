@@ -1,3 +1,4 @@
+#ifdef SDL
 #include "icon-button.h"
 
 IconButton::IconButton() {
@@ -25,3 +26,4 @@ bool IconButton::isOver(int x, int y) {
        return true;
   return false;
 }
+#endif
