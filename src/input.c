@@ -5,7 +5,7 @@
 #include <termios.h>
 #include "input.h" 
 
-#define INPUT_LEN 200
+#define INPUT_LEN 400
 struct termios orig_termios;
 char input[INPUT_LEN+1];
 int input_pos=0;

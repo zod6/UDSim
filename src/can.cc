@@ -1,4 +1,5 @@
 #include "can.h"
+#include <poll.h>
 
 Can::Can(char *interface) {
   ifname = string(interface);
@@ -182,6 +183,10 @@ vector <CanFrame *>Can::getPackets() {
 void Can::sendPackets(vector <CanFrame *>pkts) {
 	struct canfd_frame cf;
 	int i, nbytes;
+	struct pollfd fds;
+	fds.fd = _canfd; fds.events = POLLOUT;
+
+	// todo: we use can_mtu but canfd_frame???
 	for(vector<CanFrame *>::iterator it = pkts.begin(); it != pkts.end(); ++it) {
 		CanFrame *pkt = *it;
 		cf.can_id = pkt->can_id;
@@ -192,7 +197,13 @@ void Can::sendPackets(vector <CanFrame *>pkts) {
 			printf("%02X ", pkt->data[i]);
 		}
 		cout << endl;
-		nbytes = write(_canfd, &cf, CAN_MTU);
-		if(nbytes < 0) cout << "ERROR writing CAN packet" << endl;
+		while((nbytes = write(_canfd, &cf, CAN_MTU))<0){
+			if(errno!=ENOBUFS){
+				if(nbytes < 0) cout << "ERROR writing CAN packet" << strerror(errno) << endl;
+				return;
+			}
+			/* wait for the write socket (with timeout) */
+			if(poll(&fds, 1, 10) < 0) { perror("poll"); return; } // wait max 10ms
+		}
 	}
 }

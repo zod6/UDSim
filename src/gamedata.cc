@@ -367,12 +367,23 @@ void GameData::processLearned() {
 			if(type_is(GM)){
 				responder = GameData::get_module(it->getArbId() + 0x400);
 				if(responder) { // GM style negative response
-					if(it->getPositiveResponder()==-1) it->setPositiveResponderID(responder->getArbId()); // Opel. Newer GM?
+					if(it->getPositiveResponder()==-1) it->setPositiveResponderID(responder->getArbId()); // Opel
 					it->setNegativeResponderID(responder->getArbId());
 					responder->setResponder(true);
 					set_car_type(GM,"GM2");
 				}
 			}
+
+			if(type_is(CHRYSLER) && it->getArbId()>0x280){ // other GM?
+				responder = GameData::get_module(it->getArbId() - 0x11C); // BCM
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x280);
+				if(responder) {
+					if(it->getPositiveResponder()==-1) it->setPositiveResponderID(responder->getArbId()); // 2018 Chrysler Pacifica
+					responder->setResponder(true);
+					set_car_type(CHRYSLER,"CHRYSLER");
+				}
+			}
+
 			if(type_is(VAG)){
 				if(it->getProtocol()==TP20){
 					if(GameData::process_TP20(&(*it))) set_car_type(VAG, "VAG");
@@ -388,9 +399,9 @@ void GameData::processLearned() {
 				if(it->getArbId()==0x200){ // VAG TP2.0 channel setup
 				}
 			}
-			if(type_is(RENAULT)){
+			if(type_is(RENAULT) || type_is(NISSAN)){
 				responder = GameData::get_module(it->getArbId() + 0x20);
-				if(responder && it->foundResponse(responder)) { // Renault/Dacia response
+				if(responder && it->foundResponse(responder)) { // Renault/Dacia/Nissan response
 					it->setPositiveResponderID(responder->getArbId());
 					it->setNegativeResponderID(responder->getArbId());
 					responder->setResponder(true);

@@ -31,8 +31,10 @@ enum Car_Type {
 	VAG,
 	//BMW,
 	GM,
+	CHRYSLER,
 	MB,
-	RENAULT
+	RENAULT,
+	NISSAN
 };
 
 class Gui;
