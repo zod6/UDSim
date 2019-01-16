@@ -480,6 +480,7 @@ vector <CanFrame *>Module::fuzzResp(vector <CanFrame *>resp, struct canfd_frame 
 vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 	vector <CanFrame *>resp;
 	stringstream ss, errPkt;
+
 	bool doFuzz = false;
 	int offset=0;
 
@@ -487,9 +488,15 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 	if(cf->can_id==0x6F1) offset=1; // BMW
 
 	if(cf->data[offset] == 0x30 && _protocol!=TP20) {  // Flow Control
+		Module *module;
 		if(_queue.size() > 0) {
 			resp = _queue;
 			_queue.clear();
+		} else if(cf->can_id==0x7E0 && (module=gd.get_module(0x7DF))){ // MB hack
+			if(module->_queue.size()>0){
+				resp = module->_queue;
+				module->_queue.clear();
+			}
 		}
 	} else if (cf->len > (1+offset)) {
 		if(cf->data[offset] == 0x10) offset++;

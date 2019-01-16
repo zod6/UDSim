@@ -33,6 +33,7 @@ enum Car_Type {
 	GM,
 	CHRYSLER,
 	MB,
+	MB_OLD,
 	RENAULT,
 	NISSAN
 };

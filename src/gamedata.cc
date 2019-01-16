@@ -334,6 +334,7 @@ void GameData::pruneModules() {
 
   for(vector<Module>::iterator it = modules.begin(); it != modules.end(); ++it) {
     keep = false;
+	if(it->getArbId()==0x7DF) keep = true; // OBD
     if(it->confidence() > CONFIDENCE_THRESHOLD) {
       if(it->getPositiveResponder() > -1 || it->getNegativeResponder() > -1)  keep = true;
       if(it->isResponder()) keep = true;
@@ -415,6 +416,23 @@ void GameData::processLearned() {
 					it->setNegativeResponderID(responder->getArbId());
 					responder->setResponder(true);
 					set_car_type(MB, "Mercedes-Benz");
+				}
+			}
+			if(car_type==MB_OLD){ // some 2011 MB. 2013 also?
+				responder = GameData::get_module(it->getArbId() - 0x182); // 0x602, 0x480. CGW?
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x215); // 0x6F3, 0x4DE. Driver-side SAM?
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x190); // 0x612, 0x482
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x2BD); // 0x76A, 0x4AD
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x2C4); // 0x772, 0x4AE
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x1C1); // 0x64A, 0x489
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x223); // 0x6BA, 0x497
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x22A); // 0x6C2, 0x498
+				if(!responder) responder = GameData::get_module(it->getArbId() - 0x1DD); // 0x6B3, 0x4D6
+				if(responder && it->foundResponse(responder)) { // Mercedes-Benz
+					it->setPositiveResponderID(responder->getArbId());
+					it->setNegativeResponderID(responder->getArbId());
+					responder->setResponder(true);
+					set_car_type(MB_OLD, "Mercedes-Benz 2011");
 				}
 			}
 			responder = GameData::get_module(it->getArbId() + 0x09);

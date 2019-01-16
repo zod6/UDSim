@@ -16,7 +16,7 @@ void Usage(string msg) {
  cout << "     -f                  Fullscreen" << endl;
  cout << "     -g                  without GUI" << endl;
  cout << "     -z                  answer 0x01010101 to every unknown 'read data' request (can be toggled when running)" << endl;
- cout << "     -t                  car manufacturer. possible answers are 'NONE', 'AUTO', 'VAG', 'GM', 'CHRYSLER', 'MB', 'RENAULT', 'NISSAN'" << endl;
+ cout << "     -t                  car manufacturer. possible answers are 'NONE', 'AUTO', 'VAG', 'GM', 'CHRYSLER', 'MB', 'MB_OLD', 'RENAULT', 'NISSAN'" << endl;
  cout << "     -x                  send 'confirm' to every 'write data' request (can be toggled when running)" << endl;
  cout << "     -v                  Increase verbosity" << endl;
  cout << endl;
@@ -70,6 +70,7 @@ int main(int argc, char *argv[]) {
 				else if(!strcasecmp(optarg, "GM")) gd.car_type=GM;
 				else if(!strcasecmp(optarg, "CHRYSLER")) gd.car_type=CHRYSLER;
 				else if(!strcasecmp(optarg, "MB")) gd.car_type=MB;
+				else if(!strcasecmp(optarg, "MB_OLD")) gd.car_type=MB_OLD;
 				else if(!strcasecmp(optarg, "RENAULT")) gd.car_type=RENAULT;
 				else if(!strcasecmp(optarg, "NISSAN")) gd.car_type=NISSAN;
 				else Usage("Unknown manufacturer none/auto/vag/gm/chrysler/mb/renault/nissan");
