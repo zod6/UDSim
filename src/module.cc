@@ -37,7 +37,7 @@ void Module::addPacket(struct canfd_frame *cf) {
 	bool dup_found = false;
 	int offset=0;
 
-    if(_protocol==TP20){ addPacket_TP20(cf); return; }
+    if(_protocol==TP20 && cf->can_id>=0x300){ addPacket_TP20(cf); return; } // handle 0x200 and it's response like normal packet
 
 	if(_protocol==BMW || ((cf->can_id>>8)==0x6 && cf->data[0]==0xF1) || cf->can_id==0x6F1) offset++; // BMW
 	if(_repair_frame!=NULL && (cf->data[0+offset]&0xF0) == 0x20){
@@ -48,6 +48,10 @@ void Module::addPacket(struct canfd_frame *cf) {
 	for(vector<CanFrame *>::iterator it = can_history.begin(); it != can_history.end(); ++it) {
 		old_frame = *it;
 		if(old_frame->framesmatch(cf)){ dup_found = true; break; }
+	}
+	if(_protocol==TP20 && cf->can_id<0x300) {
+		if(!dup_found) can_history.push_back(new CanFrame(cf));
+		else return;
 	}
 
 	if(!dup_found) {

@@ -30,6 +30,9 @@ int main(int argc, char *argv[]) {
 	Gui gui;
 	LogParser log;
 	ConfigParser conf;
+#ifndef SDL
+	nogui=1;
+#endif
 
 	cout << "UDSim " << VERSION << endl;
 

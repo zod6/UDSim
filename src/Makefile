@@ -30,6 +30,10 @@ x86:
 	make clean
 	make all TOOLCHAIN=
 
+nogui: X86_PARAMS =
+nogui: LDFLAGS = 
+nogui: all
+
 mipsel:
 	make clean
 	make all TOOLCHAIN="/opt/mipsel-linux/bin/mipsel-linux-" X86_PARAMS="-mips32r2" BIN="$(BIN)-mipsel" LDFLAGS=""

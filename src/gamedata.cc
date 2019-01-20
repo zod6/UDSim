@@ -542,8 +542,8 @@ string GameData::frame2string(canfd_frame *cf) {
 
 void GameData::Msg(string mesg) {
 	if(mesg=="") return;
-  if(_gui == NULL) cout << mesg << endl; // treat as verbose
-  else _gui->Msg(mesg);
+	if(_gui == NULL) cout << mesg << endl; // treat as verbose
+	else _gui->Msg(mesg);
 }
 
 bool GameData::SaveConfig() {
