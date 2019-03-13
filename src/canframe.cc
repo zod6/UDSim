@@ -2,7 +2,7 @@
 
 CanFrame::CanFrame(struct canfd_frame *cf) {
   int i;
-  can_id = cf->can_id;
+  can_id = cf->can_id&CAN_EFF_MASK;
   len = cf->len;
   for(i=0; i < len; i++) { data[i] = cf->data[i]; }
   _cf = cf;

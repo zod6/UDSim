@@ -35,7 +35,8 @@ enum Car_Type {
 	MB,
 	MB_OLD,
 	RENAULT,
-	NISSAN
+	NISSAN,
+	VOLVO
 };
 
 class Gui;

@@ -56,17 +56,17 @@ void Module::addPacket(struct canfd_frame *cf) {
 
 	if(!dup_found) {
 		if((cf->data[0+offset]&0xF0) == 0x20) {
-			// todo: also check index. must be 0x10->0x21->0x22->...
+			// todo: also check index. must be 0x1.->0x21->0x22->...
 			if(_expect_consecutive_frame==true && can_history.back()) can_history.back()->queue.push_back(new CanFrame(cf));
 		} else {
 			can_history.push_back(new CanFrame(cf));
-			if( cf->data[0+offset]==0x10 ) _expect_consecutive_frame=true;
+			if( cf->data[0+offset]==0x10 || cf->data[0+offset]==0x11 ) _expect_consecutive_frame=true;
 			else _expect_consecutive_frame=false;
 		}
 		_repair_frame=NULL;
 	} else {
 		// test for missing multi-frames
-		if( cf->data[0+offset] == 0x10 && old_frame->queue.size()!=(ceil((double)(cf->data[1+offset]+1)/(7-offset))-1) ){ _repair_frame=old_frame; _repair_frame_num=1; }
+		if( (cf->data[offset] == 0x10 || cf->data[offset] == 0x11) && old_frame->queue.size()!=(ceil((double)(((cf->data[offset]&0x0F)<<8)+cf->data[1+offset]+1)/(7-offset))-1) ){ _repair_frame=old_frame; _repair_frame_num=1; }
 		else _repair_frame=NULL;
 		_expect_consecutive_frame=false;
 	}
@@ -148,7 +148,7 @@ bool Module::foundResponse(Module *responder) {
 			if(possible_resp.size() > 0) { // Standard response
 				for(vector<CanFrame *>::iterator it = possible_resp.begin(); it != possible_resp.end(); ++it) {
 					CanFrame *pcf = *it;
-					if(pass && pcf->data[0]!=0x10) continue; // second pass and not extender response
+					if(pass && pcf->data[0]!=0x10 && pcf->data[0]!=0x11) continue; // second pass and not extender response
 					if(cf->data[0] == 1) return true;
 					else if(cf->data[2] == pcf->data[2+pass]) return true; // Request has a sub function
 				}
@@ -326,28 +326,23 @@ vector <CanFrame *>Module::fetchHistory(struct canfd_frame *cf, int max_level) {
 
 	//if(responder != NULL && getPacketsByBytePos(1+resp_offset, cf->data[1+req_offset]).size() > 0 ) {} // responder exists and we have seen a request cmd like this before
 	if(responder != NULL){
-		for(int pass=0; pass<2; pass++) { // two passes
-			for(vector<CanFrame *>::iterator it = responder->can_history.begin(); it != responder->can_history.end(); ++it) {
-				CanFrame *pcf= *it;
-				if( pcf->len > max_level+resp_offset 	 && pcf->data[0+resp_offset] >= max_level		// response cannot be shorter than request
-						&& ( !pass		 || pcf->data[0+resp_offset-1]==0x10 )							// multi-frame starts with 0x10
-						&& (				pcf->data[1+resp_offset]==cf->data[1+req_offset] + 0x40 )	// resp_cmd  == req_cmd
-						&& ( max_level<2 ||	pcf->data[2+resp_offset]==cf->data[2+req_offset] )			// resp_func == req_func
-						&& ( max_level<3 ||	pcf->data[3+resp_offset]==cf->data[3+req_offset] ) )		// resp_subf == req_subf
-				{
-					resp.push_back(pcf);
-					if(_protocol==TP20 && pcf->queue.size()>0){ // use same for other protocols?
-						for(vector<CanFrame *>::iterator it2 = pcf->queue.begin(); it2 != pcf->queue.end(); ++it2) resp.push_back(*it2);
-						break; // we don't want multiple multi-frames
-					}
-					if(pass){ // second pass. multi-frames
-						for(vector<CanFrame *>::iterator it2 = pcf->queue.begin(); it2 != pcf->queue.end(); ++it2) resp.push_back(*it2);
-						break; // we don't want multiple multi-frames
-					}
-				}
+		for(vector<CanFrame *>::iterator it = responder->can_history.begin(); it != responder->can_history.end(); ++it) {
+			uint8_t pcf_offset=resp_offset;
+			CanFrame *pcf= *it;
+			if(pcf->data[pcf_offset]==0x10 || pcf->data[pcf_offset]==0x11){
+				if((((pcf->data[pcf_offset]&0x0F)<<8) + pcf->data[pcf_offset+1]) < max_level) continue; // response cannot be shorter than request
+				pcf_offset++;
+			} else if(pcf->data[pcf_offset] < max_level) continue;	// response cannot be shorter than request
+
+			if( pcf->len > max_level+pcf_offset 													// response cannot be shorter than request
+					&& (				pcf->data[1+pcf_offset]==cf->data[1+req_offset] + 0x40 )	// resp_cmd  == req_cmd
+					&& ( max_level<2 ||	pcf->data[2+pcf_offset]==cf->data[2+req_offset] )			// resp_func == req_func
+					&& ( max_level<3 ||	pcf->data[3+pcf_offset]==cf->data[3+req_offset] ) )		// resp_subf == req_subf
+			{
+				resp.push_back(pcf);
+				if(pcf->queue.size()>0) for(vector<CanFrame *>::iterator it2 = pcf->queue.begin(); it2 != pcf->queue.end(); ++it2) resp.push_back(*it2);
+				if(resp.size()>0) break;
 			}
-			if(resp.size()>0) break; // no need for second pass
-			resp_offset++; // test for multi-frame. first byte == 0x10
 		}
 	}
 	return resp;
@@ -503,7 +498,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 			}
 		}
 	} else if (cf->len > (1+offset)) {
-		if(cf->data[offset] == 0x10) offset++;
+		if(cf->data[offset] == 0x10) offset++; // multi-frame query 
 		resp = Module::fetchHistory(cf, 2);
 		if(fuzz && getFuzzLevel() > 0) doFuzz = true;
 		switch(cf->data[1+offset]) {
