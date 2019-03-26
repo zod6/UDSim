@@ -33,7 +33,7 @@ string LogParser::processNext() {
   char *fret;
   if (!log_opened) {
     logfp = fopen(logfile.c_str(), "r");
-    if(logfp < 0) {
+    if(!logfp) {
       log_eof = true;
       return "Couldn't open logfile " + logfile;
     } else {
@@ -53,7 +53,7 @@ string LogParser::processNext() {
     } else {
       if (sscanf(buf, "(%ld.%ld) %s %s", &log_tv.tv_sec, &log_tv.tv_usec, device, ascframe) != 4) {
 		  printf("%s\n",buf);
-        return "incorrect line format in logfile";
+		  return "incorrect line format in logfile";
       }
       gd.getCan()->parse_canframe(ascframe, &cf);
       gd.processPkt(&cf);
@@ -61,5 +61,5 @@ string LogParser::processNext() {
 	  else return "";
     }
   }
-  return "Finsihed processing logfile";
+  return "Finished processing logfile";
 }

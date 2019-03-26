@@ -52,14 +52,22 @@ void processInput(){
 			input[input_pos++]=c;
 			input[input_pos]=0;
 			if(input[input_pos-1]=='\n' || input_pos>=INPUT_LEN){
-				if(input_pos<=INPUT_LEN) input[input_pos]=0; else input[INPUT_LEN]=0;
-				if(input[3]=='#' && input_pos>=8){
+				uint8_t offset=0;
+				int src=0;
+				if(input_pos<=INPUT_LEN) input[input_pos-1]=0; else input[INPUT_LEN]=0;
+				if(input_pos>=3 && input[3]==','){ // # src,dst#xxxxxx // for some TP20 packets
 					input[3]=0;
-					Module *module = gd.get_module(strtol(input,NULL,16));
+					src=strtol(input,NULL,16);
+					offset=4;
+				}
+				if(input_pos>=(8+offset) && (input[3+offset]=='#' || input[8+offset]=='#')){
+					char mod[9];
+					memcpy(mod, input+offset, 8);
+					if(mod[3]=='\n') mod[3]=0; else mod[8]=0;
+					Module *module = gd.get_module(strtol(mod,NULL,16), src);
 					if(module){
-						input[3]='#';
-						module->addPacket_front(input);
-						cout << "packet added: " << module->getArbId() << "#" << input+4 << endl;
+						module->addPacket_front(input+offset);
+						cout << "packet added: " << input+offset << " (" << std::hex << src << ")" << endl;
 					}
 				}
 				input_pos=0;

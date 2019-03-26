@@ -10,6 +10,11 @@
 #include <SDL2/SDL_image.h>
 #endif
 
+// very long answers could contain more than 0xff characters but haven't seen in TP20 yet
+#define is_tp20_multipacket(byte) (!(byte&0x10) && byte<0x40)	// not last. more to follow
+#define is_tp20_last_packet(byte) (byte&0x10)					// 0x10 || 0x30
+#define is_tp20_waiting_ack(byte) !(byte&0x20)					// 0x00 || 0x10
+
 extern const char *Protocol_str[]; // module.cc
 
 // also update Protocol_str in gamedata.cc
@@ -120,7 +125,7 @@ class Module
   SDL_Texture *id_texture = NULL;
 #endif
   vector<CanFrame *>can_history;
-  vector<CanFrame *>_queue;
+  vector<CanFrame *>_queue; // hold multi-line response temporarily until 0x30... comes
   bool _expect_consecutive_frame = false;
   CanFrame *_repair_frame = NULL; // sometimes we have missing packets. try to repair queue
   unsigned int _repair_frame_num = 0;

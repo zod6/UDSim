@@ -48,6 +48,7 @@ class GameData
     GameData();
     ~GameData();
     Module *get_module(int);
+	Module *get_module(int, int);
     Module *get_possible_module(int);
     vector<Module> modules;
     vector<Module> possible_modules;
@@ -90,6 +91,8 @@ class GameData
 	canfd_frame multiquery; // buffer first packet to play it later
 	int multiquery_cnt=0;
 	Protocol _lastprotocol=UDS;
+	unsigned int _tp20_last_requester=0; // sometimes ecu uses same response address for different request addresses (0x300 -> 0x4C1, 0x300 -> 0x4C3)
+	unsigned int _tp20_last_responder=0;
 };
 
 #endif

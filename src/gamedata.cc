@@ -3,11 +3,6 @@
 #define type_is(type) (car_type==type || car_type==NONE || car_type==AUTO)
 #define set_car_type(type, str) if(car_type==AUTO){ car_type=type; cout << "Manufacturer found: " << str << endl; }
 
-// very long answers could contain more than 0xff characters but haven't seen in TP20 yet
-#define is_tp20_multipacket(byte) !(byte&0x10)
-#define is_tp20_last_packet(byte) (byte&0x10)	// 0x10 || 0x30
-#define is_tp20_waiting_ack(byte) !(byte&0x20)	// 0x00 || 0x10
-
 GameData::GameData() { }
 
 GameData::~GameData() { }
@@ -15,6 +10,14 @@ GameData::~GameData() { }
 Module *GameData::get_module(int id) {
   for(vector<Module>::iterator it = modules.begin(); it != modules.end(); ++it) {
     if(it->getArbId() == id) return &*it;
+  }
+  return NULL;
+}
+
+// TP20 can have multiple id, resp_id combinations
+Module *GameData::get_module(int id, int resp_id) {
+  for(vector<Module>::iterator it = modules.begin(); it != modules.end(); ++it) {
+    if(it->getArbId() == id && (it->getProtocol()!=TP20 || resp_id==0 || it->getPositiveResponder()==resp_id)) return &*it;
   }
   return NULL;
 }
@@ -39,8 +42,8 @@ vector <Module *> GameData::get_possible_active_modules() {
 
 Module *GameData::get_possible_module(int id) {
   for(vector<Module>::iterator it = possible_modules.begin(); it != possible_modules.end(); ++it) {
-    if(it->getArbId() == id) return &*it;
-  }  
+	if(it->getArbId() == id && (it->getProtocol()!=TP20 || it->getPositiveResponder()==-1 || _tp20_last_requester==0 || it->getPositiveResponder()==(int)_tp20_last_requester)) return &*it;
+  }
   return NULL;
 }
 
@@ -136,7 +139,7 @@ void GameData::HandleSim(canfd_frame *cf, int fuzz) {
 	vector<CanFrame *>response = module->getResponse(cf, fuzz);
 	if(!response.empty()) {
 		//CanFrame *resFrame = response.at(0);
-		if (response.front()->len==8 && (response.front()->data[offset]==0x10 || response.front()->data[offset]==0x11)){ // Multi-packet
+		if (response.front()->len==8 && (response.front()->data[offset]&0xF0)==0x10){ // Multi-packet
 			// send first and wait for 0x30...
 			canif->sendPackets( {response.front()} );
 			module->queue_set(response, 1);
@@ -155,6 +158,7 @@ void GameData::HandleSim(canfd_frame *cf, int fuzz) {
 void GameData::Handle_TP20(canfd_frame *cf, Module *module) {
 	Module *responder;
 	static uint8_t ack_seq;
+	// static uint8_t packet_seq; // ack and packet seq are different?
 
 	if(cf->can_id==0x200){ // VAG TP2.0 channel setup
 		ack_seq=0;
@@ -178,7 +182,7 @@ void GameData::Handle_TP20(canfd_frame *cf, Module *module) {
 		return;
 	}
 
-	if( (responder=GameData::get_module(module->getPositiveResponder(cf))) ){
+	if( (responder=GameData::get_module(module->getPositiveResponder(cf), module->getArbId())) ){
 		char str[24];
 		if(cf->data[0]==0xA8){ // disconnect
 			snprintf(str, 7, "%03X#A8", responder->getArbId());
@@ -250,7 +254,6 @@ void GameData::Handle_TP20(canfd_frame *cf, Module *module) {
  */
 }
 
-
 void GameData::LearnPacket(canfd_frame *cf) {
 	Module *module = GameData::get_possible_module(cf->can_id);
 	Module *possible_module = GameData::isPossibleISOTP(cf);
@@ -265,7 +268,7 @@ void GameData::LearnPacket(canfd_frame *cf) {
 			delete possible_module;
 		} else {
 			// Still maybe an ISOTP answer, check for common syntax
-			if((cf->data[0] == 0x10 || cf->data[0] == 0x11) && cf->len == 8) {
+			if((cf->data[0]&0xF0) == 0x10 && cf->len == 8) {
 				module->incMatchedISOTP();
 			} else if(cf->data[0] == 0x30 && cf->len == 3) {
 				module->incMatchedISOTP();
@@ -292,22 +295,27 @@ Module *GameData::isPossibleISOTP(canfd_frame *cf) {
 
 	if( (cf->can_id==0x200 && cf->len==7 && cf->data[1]==0xC0) 						// Possible VAG TP20 channel setup
 		|| (cf->can_id>0x200 && cf->can_id<0x300 && cf->len==7 && cf->data[1]==0xD0)// possible VAG TP20 channel setup response. only match positive
-		|| (_lastprotocol==TP20 && cf->len>1 && (cf->data[0]&0xA0)==0xA0) 			// possible TP20 channel parameters
+		|| (_lastprotocol==TP20 && cf->len>1 && (cf->data[0]&0xF0)==0xA0) 			// possible TP20 channel parameters
 		|| (_lastprotocol==TP20 && cf->len==1)										// possible TP20 ACK
+		|| cf->can_id==_tp20_last_requester || cf->can_id==_tp20_last_responder		// dont't reset last protocol
 	  ) {
 		possible = new Module(cf->can_id);
 		possible->setProtocol(TP20);
+		if(_tp20_last_requester && cf->can_id==_tp20_last_responder) possible->setPositiveResponderID(_tp20_last_requester); // hack. shoud be setPositiveRequesterID
+
+		if(cf->can_id==0x200) _tp20_last_responder=cf->data[5]<<8|cf->data[4]; // 0x300
+		if(cf->can_id>0x200 && cf->can_id<0x300 && cf->len==7 && cf->data[1]==0xD0) _tp20_last_requester=cf->data[5]<<8|cf->data[4];
 		_lastprotocol=TP20;
 		return possible;
 	}
 
-	if(cf->data[0] == cf->len - 1 					// Possible UDS request
-			|| ((cf->data[0]==0x10 || cf->data[0]==0x11) && cf->len==8)	// Possible multipacket UDS request
-			|| cf->can_id==0x6F1){ 					// Possible BMW gateway
+	if(cf->data[0] == cf->len - 1 						// Possible UDS request
+			|| ((cf->data[0]&0xF0)==0x10 && cf->len==8)	// Possible multipacket UDS request
+			|| cf->can_id==0x6F1){ 						// Possible BMW gateway
 		possible = new Module(cf->can_id);
 	} else if( (cf->can_id>>8)==0x6 && cf->data[0]==0xF1 ) {	// possible BMW response (612#F1046C01F303)
 		possible = new Module(cf->can_id);
-		possible->setResponder(true); // BMW uses first byte for addressing
+		possible->setResponder(true);	// BMW uses first byte for addressing
 	} else if(cf->data[0] < cf->len - 2 // Check if remaining bytes are just padding
 			|| (cf->data[0]==6 && cf->len==8 && (cf->data[7]==0 || cf->data[7]==0xAA || cf->data[7]==0x55)) ) { // only last byte is padding
 		padding = true;
@@ -323,21 +331,25 @@ Module *GameData::isPossibleISOTP(canfd_frame *cf) {
 			possible->setPaddingByte(last_byte);
 		}
 	}
-	if(possible) _lastprotocol=UDS;
+	if(possible){
+		_lastprotocol=UDS;
+		_tp20_last_requester=0; _tp20_last_responder=0;
+	}
 	return possible;
 }
 
 // Goes through the modules and removes ones that are less likely to be of use
 void GameData::pruneModules() {
   vector<Module> goodModules;
-  bool keep = false;
+  bool keep;
 
   for(vector<Module>::iterator it = modules.begin(); it != modules.end(); ++it) {
     keep = false;
 	if(it->getArbId()==0x7DF) keep = true; // OBD
-    if(it->confidence() > CONFIDENCE_THRESHOLD) {
-      if(it->getPositiveResponder() > -1 || it->getNegativeResponder() > -1)  keep = true;
-      if(it->isResponder()) keep = true;
+	if(it->getPositiveResponder() > -1 || it->getNegativeResponder() > -1)  keep = true;
+	if(it->isResponder()) keep = true;
+	if(it->getProtocol()==TP20) keep = true;
+	if(it->confidence() > CONFIDENCE_THRESHOLD) {
       if(!keep && it->getMatchedISOTP() > 0) keep = true;
     }
 
@@ -390,6 +402,7 @@ void GameData::processLearned() {
 					if(GameData::process_TP20(&(*it))) set_car_type(VAG, "VAG");
 				} else {
 					responder = GameData::get_module(it->getArbId() + 0x6A);
+					if(!responder && it->getArbId()>0x10000000) responder = GameData::get_module(it->getArbId() + 0x20000); // newer Audi
 					if(responder && it->foundResponse(responder)) { // VAG
 						it->setNegativeResponderID(responder->getArbId());
 						it->setPositiveResponderID(responder->getArbId());
@@ -481,7 +494,7 @@ void GameData::processLearned() {
 
 int GameData::process_TP20(Module *module){
 	uint16_t qry_addr, resp_addr;
-	Module *m= NULL;
+	Module *m=NULL;
 	CanFrame *f;
 	vector<CanFrame *> *h_it;
 	/*
@@ -522,12 +535,22 @@ int GameData::process_TP20(Module *module){
 					for(vector<CanFrame*>::iterator i = h_it->begin(); i != h_it->end();){ if((*i)->len==1) i=h_it->erase(i); else i++; } // remove ACK
 					// h_it->erase( remove_if(h_it->begin(), h_it->end(), [](const CanFrame *o) { return o->len==1; }), h_it->end()); // same, requires <algorithm>
 				}
+				// response modules could share same address
+				for(vector<Module>::iterator m_it = modules.begin(); m_it != modules.end(); ++m_it) { // process multiple combinations of addr, response_id
+					if(m_it->getArbId()!=resp_addr) continue;
+					m_it->setResponder(true);
+					m_it->setProtocol(TP20);
+					h_it = m_it->getHistory_ptr();
+					for(vector<CanFrame*>::iterator i = h_it->begin(); i != h_it->end();){ if((*i)->len==1) i=h_it->erase(i); else i++; } // remove ACK
+				}
+				/*
 				if((m = GameData::get_module(resp_addr))){		// search for 0x302
 					m->setResponder(true);
 					m->setProtocol(TP20);
 					h_it = m->getHistory_ptr();
 					for(vector<CanFrame*>::iterator i = h_it->begin(); i != h_it->end();){ if((*i)->len==1) i=h_it->erase(i); else i++; } // remove ACK
 				}
+				*/
 				found=1;
 				//cout << hex << "XX" << qry_addr << " | " << resp_addr << " | " << m->getNegativeResponder() << "XX" << endl;
 			}
@@ -566,10 +589,10 @@ bool GameData::SaveConfig() {
     configFile << "[" << hex << it->getArbId() << "]" << endl;
     if(it->getX() || it->getY()) configFile << "pos = " << dec << it->getX() << "," << it->getY() << endl;
     configFile << "responder = " << it->isResponder() << endl;
-    if(!it->isResponder()) {
+    //if(!it->isResponder()) { // for TP20
       if(it->getPositiveResponder() != -1) configFile << "positiveID = " << hex << it->getPositiveResponder() << endl;
       if(it->getNegativeResponder() != -1) configFile << "negativeID = " << hex << it->getNegativeResponder() << endl;
-    }
+    //}
     if(it->getIgnore()) configFile << "ignore = " << it->getIgnore() << endl;
     if(it->getFuzzVin()) configFile << "fuzz_vin = " << it->getFuzzVin() << endl;
     if(it->getFuzzLevel() > 0) configFile << "fuzz_level = " << it->getFuzzLevel() << endl;

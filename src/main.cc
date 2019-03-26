@@ -104,7 +104,7 @@ int main(int argc, char *argv[]) {
 	cout << "'z': answer 0x01010101 to every unknown read data response" << endl;
 	cout << "'x': confirm every write data reponse" << endl;
 	cout << "'q': quit" << endl << endl;
-	cout << "to define new responses: '640#f1100862d5500001,640#f121000003fffff'" << endl << endl;
+	cout << "to define new responses: '[src,]640#f1100862d5500001,640#f121000003fffff'" << endl << endl;
 
 	gui.setVerbose(verbose);
 	if(!nogui){
