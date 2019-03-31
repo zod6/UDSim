@@ -168,7 +168,7 @@ void GameData::Handle_TP20(canfd_frame *cf, Module *module) {
 				if((*it)->data[0]==0x00 && (*it)->data[1]==0xD0){ canif->sendPackets({*it}); return; } // positive answer found
 			}
 			//cout << responder->getHistory().front()->can_id << endl;
-			canif->sendPackets({ hist.front() }); // no positive match. just send something
+			canif->sendPackets_TP20({ hist.front() }); // no positive match. just send something
 		}
 	}
 
@@ -219,7 +219,8 @@ void GameData::Handle_TP20(canfd_frame *cf, Module *module) {
 						canif->sendPackets( {response.front()} );
 						module->queue_set(response, 1);
 					} else { // send all at once. let's hope ack not needed in the middle
-						canif->sendPackets(response);
+						// unfortunately sometimes needed :(
+						canif->sendPackets_TP20(response);
 					}
 				} else { // single packet answer	
 					CanFrame *frame;
@@ -261,6 +262,7 @@ void GameData::LearnPacket(canfd_frame *cf) {
 	//if((module || possible_module) && cf->can_id==0x755) printf("%X:%02X%02X%02X%02X%02X%02X%02X%02X\n", cf->can_id, cf->data[0], cf->data[1], cf->data[2], cf->data[3], cf->data[4], cf->data[5], cf->data[6], cf->data[7]);
 
 	// If module exists then we have seen this ID before
+	// todo: set offset for bmw etc
 	if(module) {
 		module->addPacket(cf);
 		if(possible_module) {
@@ -268,7 +270,7 @@ void GameData::LearnPacket(canfd_frame *cf) {
 			delete possible_module;
 		} else {
 			// Still maybe an ISOTP answer, check for common syntax
-			if((cf->data[0]&0xF0) == 0x10 && cf->len == 8) {
+			if(is_multipacket(cf,0)) {
 				module->incMatchedISOTP();
 			} else if(cf->data[0] == 0x30 && cf->len == 3) {
 				module->incMatchedISOTP();
@@ -293,6 +295,7 @@ Module *GameData::isPossibleISOTP(canfd_frame *cf) {
 	uint8_t last_byte;
 	Module *possible = NULL;
 
+	// todo: use offset
 	if( (cf->can_id==0x200 && cf->len==7 && cf->data[1]==0xC0) 						// Possible VAG TP20 channel setup
 		|| (cf->can_id>0x200 && cf->can_id<0x300 && cf->len==7 && cf->data[1]==0xD0)// possible VAG TP20 channel setup response. only match positive
 		|| (_lastprotocol==TP20 && cf->len>1 && (cf->data[0]&0xF0)==0xA0) 			// possible TP20 channel parameters
@@ -310,7 +313,7 @@ Module *GameData::isPossibleISOTP(canfd_frame *cf) {
 	}
 
 	if(cf->data[0] == cf->len - 1 						// Possible UDS request
-			|| ((cf->data[0]&0xF0)==0x10 && cf->len==8)	// Possible multipacket UDS request
+			|| is_multipacket(cf,0)						// Possible multipacket UDS request
 			|| cf->can_id==0x6F1){ 						// Possible BMW gateway
 		possible = new Module(cf->can_id);
 	} else if( (cf->can_id>>8)==0x6 && cf->data[0]==0xF1 ) {	// possible BMW response (612#F1046C01F303)
@@ -458,22 +461,24 @@ void GameData::processLearned() {
 					set_car_type(VOLVO, "VOLVO");
 				}
 			}
-			responder = GameData::get_module(it->getArbId() + 0x09);
-			if(it->getArbId()==0x7DF && responder && it->foundResponse(responder)) { // OBD
-				it->setPositiveResponderID(responder->getArbId());
-				it->setNegativeResponderID(responder->getArbId());
-				responder->setResponder(true);
-			}
-			responder = GameData::get_module(it->getArbId() + 0x08);
-			if(responder && it->foundResponse(responder)) { // Standard response
-				it->setPositiveResponderID(responder->getArbId());
-				it->setNegativeResponderID(responder->getArbId());
-				responder->setResponder(true);
-			}
-			responder = GameData::get_module(it->getArbId() + 0x01); // what car/module matches this?
-			if(responder && it->foundResponse(responder)) { // check for flow control
-				vector<CanFrame *>pkts = responder->getPacketsByBytePos(0, 0x30);
-				if(pkts.size() > 0) responder->setResponder(true);
+			if(!responder){
+				responder = GameData::get_module(it->getArbId() + 0x09);
+				if(it->getArbId()==0x7DF && responder && it->foundResponse(responder)) { // OBD
+					it->setPositiveResponderID(responder->getArbId());
+					it->setNegativeResponderID(responder->getArbId());
+					responder->setResponder(true);
+				}
+				responder = GameData::get_module(it->getArbId() + 0x08);
+				if(responder && it->foundResponse(responder)) { // Standard response
+					it->setPositiveResponderID(responder->getArbId());
+					it->setNegativeResponderID(responder->getArbId());
+					responder->setResponder(true);
+				}
+				responder = GameData::get_module(it->getArbId() + 0x01); // what car/module matches this?
+				if(responder && it->foundResponse(responder)) { // check for flow control
+					vector<CanFrame *>pkts = responder->getPacketsByBytePos(0, 0x30);
+					if(pkts.size() > 0) responder->setResponder(true);
+				}
 			}
 		}
 	}

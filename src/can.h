@@ -33,6 +33,8 @@ class Can
     unsigned char asc2nibble(char);
     vector <CanFrame *>getPackets();
     void sendPackets(vector <CanFrame *>);
+	void sendPackets_TP20(vector <CanFrame *>);
+    void sendPackets(vector <CanFrame *>, int);
   private:
     string ifname;
     int _canfd;

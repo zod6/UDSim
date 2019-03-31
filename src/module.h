@@ -15,6 +15,7 @@
 #define is_tp20_last_packet(byte) (byte&0x10)					// 0x10 || 0x30
 #define is_tp20_waiting_ack(byte) !(byte&0x20)					// 0x00 || 0x10
 
+#define is_multipacket(cf, offset) ((cf->data[offset]&0xF0) == 0x10 && cf->len==8 && (((cf->data[0+offset]&0x0F)<<8)+cf->data[1+offset]+1) > (7-offset))
 extern const char *Protocol_str[]; // module.cc
 
 // also update Protocol_str in gamedata.cc

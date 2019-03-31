@@ -161,6 +161,13 @@ vector <CanFrame *>Can::getPackets() {
 }
 
 void Can::sendPackets(vector <CanFrame *>pkts) {
+	sendPackets(pkts, 0); // generic
+}
+void Can::sendPackets_TP20(vector <CanFrame *>pkts) {
+	sendPackets(pkts, 1); // tp20 hack
+}
+
+void Can::sendPackets(vector <CanFrame *>pkts, int tp20) {
 	struct canfd_frame cf;
 	int i, nbytes;
 	struct pollfd fds;
@@ -186,6 +193,9 @@ void Can::sendPackets(vector <CanFrame *>pkts) {
 			/* wait for the write socket (with timeout) */
 			if(poll(&fds, 1, 10) < 0) { perror("poll"); return; } // wait max 10ms
 		}
-		usleep(500); // 0.5ms or diag. device cannot keep up
+		if(pkt!=pkts.back()){
+			if(tp20 && (cf.data[0]&0xF0)==0) usleep(3000); // TP20 hack. wait ack if response is long
+			else usleep(800); // 0.8ms or diag. device cannot keep up
+		}
 	}
 }
