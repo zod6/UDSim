@@ -114,6 +114,8 @@ void ConfigParser::parseModule(Module *mod, string line, int pos) {
     mod->setFuzzLevel(fuzz_level);
   } else if(field == "protocol") {
 	  mod->setProtocol(ss.str().c_str()+1);
+  } else if(field == "offset") {
+	  mod->setOffset(atoi(ss.str().c_str()));
   }else {
     cout << "config error: Unknown field " << field << endl;
   }

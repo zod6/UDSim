@@ -15,7 +15,9 @@
 #define is_tp20_last_packet(byte) (byte&0x10)					// 0x10 || 0x30
 #define is_tp20_waiting_ack(byte) !(byte&0x20)					// 0x00 || 0x10
 
-#define is_multipacket(cf, offset) ((cf->data[offset]&0xF0) == 0x10 && cf->len==8 && (((cf->data[0+offset]&0x0F)<<8)+cf->data[1+offset]+1) > (7-offset))
+#define is_first_multipacket(cf, offset) ((cf->data[offset]&0xF0) == 0x10 && cf->len==8 && (((cf->data[0+offset]&0x0F)<<8)+cf->data[1+offset]+1) > (7-offset))
+#define PACKET_COUNT(cf, offset) ((cf->data[offset] < 0x10 ? 1 : ceil((double)(((cf->data[offset]&0x0F)<<8)+cf->data[1+offset]+1)/(7-offset))-1))
+
 extern const char *Protocol_str[]; // module.cc
 
 // also update Protocol_str in gamedata.cc
@@ -74,6 +76,7 @@ class Module
   vector <CanFrame *>getHistory() { return can_history; }
   vector <CanFrame *> *getHistory_ptr() { return &can_history; }
   vector <CanFrame *>getPacketsByBytePos(unsigned int, unsigned char);
+  vector <CanFrame *>getPacketsByMask(uint8_t*, uint8_t*,int);
   bool foundResponse(Module *);
   int getState();		// for GUI
   void setState(int s); // for GUI
@@ -111,6 +114,8 @@ class Module
   void setProtocol(Protocol p){ _protocol=p; }
   void setProtocol(const char*);
   Protocol getProtocol(){ return _protocol; }
+  void setOffset(int offset){ _offset=offset; }
+  int getOffset(){ return _offset; }
  private:
   int arbId;
   int matched_isotp = 0;
@@ -128,7 +133,7 @@ class Module
   vector<CanFrame *>can_history;
   vector<CanFrame *>_queue; // hold multi-line response temporarily until 0x30... comes
   bool _expect_consecutive_frame = false;
-  CanFrame *_repair_frame = NULL; // sometimes we have missing packets. try to repair queue
+  CanFrame *_repair_frame = NULL; // sometimes we have missing packets. try to repair queue (pointer to can_history element)
   unsigned int _repair_frame_num = 0;
   int positive_responder_id = -1;
   int negative_responder_id = -1;
@@ -137,6 +142,7 @@ class Module
   bool _fuzz_vin = false;
   bool _ignore = false;
   Protocol _protocol = UDS;
+  int _offset = 0;
 };
 
 #endif

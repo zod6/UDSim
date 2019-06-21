@@ -1,7 +1,9 @@
 udsim
+udsim-mipsel
 *~
 *.dump
 *.d
 *.o
 *.swp
 *.cfg
+.*

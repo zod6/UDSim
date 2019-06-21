@@ -27,6 +27,7 @@ LogParser::~LogParser() {
 }
 
 string LogParser::processNext() {
+  static int line;
   static char buf[BUFSZ], device[BUFSZ], ascframe[BUFSZ];
   static struct timeval log_tv;
   struct canfd_frame cf;
@@ -39,21 +40,22 @@ string LogParser::processNext() {
     } else {
       log_eof = false;
       log_opened = true;
+	  line=0;
 	  return "logfile: " + logfile;
     }
   } else {  // Log already opened
     /* read first non-comment frame from logfile */
     while ((fret = fgets(buf, BUFSZ-1, logfp)) != NULL && buf[0] != '(') {
-      if (strlen(buf) >= BUFSZ-2) {
-        return "comment line too long for input buffer";
-      }
+	  line++;
+      if (strlen(buf) >= BUFSZ-2) return "comment line too long for input buffer";
     }
+	line++;
     if(!fret) { 
       log_eof = true; 
     } else {
       if (sscanf(buf, "(%ld.%ld) %s %s", &log_tv.tv_sec, &log_tv.tv_usec, device, ascframe) != 4) {
 		  printf("%s\n",buf);
-		  return "incorrect line format in logfile";
+		  return "incorrect line format in logfile ("+to_string(line)+")";
       }
       gd.getCan()->parse_canframe(ascframe, &cf);
       gd.processPkt(&cf);
