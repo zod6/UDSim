@@ -16,7 +16,7 @@ void Usage(string msg) {
  cout << "     -f                  Fullscreen" << endl;
  cout << "     -g                  without GUI" << endl;
  cout << "     -z                  answer 0x01010101 to every unknown 'read data' request (can be toggled when running)" << endl;
- cout << "     -t                  car manufacturer. possible answers are 'NONE', 'AUTO', 'VAG', 'GM', 'GM2', 'CHRYSLER', 'MB', 'RENAULT', 'NISSAN', 'VOLVO', 'PSA'" << endl;
+ cout << "     -t                  car manufacturer. possible answers are 'NONE', 'AUTO', 'VAG', 'GM', 'GM2', 'CHRYSLER', 'MB', 'RENAULT', 'NISSAN', 'VOLVO', 'PSA', 'SUBARU'" << endl;
  cout << "     -x                  send 'confirm' to every 'write data' request (can be toggled when running)" << endl;
  cout << "     -v                  Increase verbosity" << endl;
  cout << endl;
@@ -78,7 +78,8 @@ int main(int argc, char *argv[]) {
 				else if(!strcasecmp(optarg, "NISSAN")) gd.car_type=NISSAN;
 				else if(!strcasecmp(optarg, "VOLVO")) gd.car_type=VOLVO;
 				else if(!strcasecmp(optarg, "PSA")) gd.car_type=PSA;
-				else Usage("Unknown manufacturer none/auto/vag/gm/gm2/chrysler/mb/renault/nissan/volvo/psa");
+				else if(!strcasecmp(optarg, "SUBARU")) gd.car_type=SUBARU;
+				else Usage("Unknown manufacturer none/auto/vag/gm/gm2/chrysler/mb/renault/nissan/volvo/psa/subaru");
 				break;
 			default:
 				Usage("Help Menu");

@@ -98,10 +98,10 @@ void Module::addPacket_TP20(struct canfd_frame *cf) {
 		//Module::repair_queue(cf); // TP20 not implemented
 		return;
 	}
-	// TP20 ignore seq (b0&0x0F)
+	// packet already exists?
 	for(vector<CanFrame *>::iterator it = can_history.begin(); it != can_history.end(); ++it) {
 		old_frame = *it;
-		if( (*it)->len!=cf->len || (((*it)->data[0]^cf->data[0])&0xF0)) continue;
+		if( (*it)->len!=cf->len || (((*it)->data[0]^cf->data[0])&0xF0)) continue; // ignore TP20 seq (b0&0x0F)
 		for(i=1; i<cf->len; i++) if((*it)->data[i]!=cf->data[i]) break;
 		if(i==cf->len){ dup_found=true; break; }
 	}
@@ -363,6 +363,7 @@ vector <CanFrame *>Module::fetchHistory(struct canfd_frame *cf, int max_level) {
 			} else if(pcf->data[pcf_offset] < max_level) continue;	// response cannot be shorter than request
 
 			if( pcf->len > max_level+pcf_offset 													// response cannot be shorter than request
+					&& ( !_offset || (_protocol==UDS && pcf->data[0]==cf->data[0]) )				// if UDS extended addressing then compare first byte (subaru, peugeot)
 					&& (				pcf->data[1+pcf_offset]==cf->data[1+req_offset] + 0x40 )	// resp_cmd  == req_cmd
 					&& ( max_level<2 ||	pcf->data[2+pcf_offset]==cf->data[2+req_offset] )			// resp_func == req_func
 					&& ( max_level<3 ||	pcf->data[3+pcf_offset]==cf->data[3+req_offset] ) )			// resp_subf == req_subf
@@ -533,6 +534,9 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 			if(module->_queue.size()>0){ resp = module->_queue; module->_queue.clear(); }
 		}
 	} else if (cf->len > (1+offset)) {
+		char prefix[3]=""; // for extended addressing and error response
+		if(_protocol==UDS && _offset) sprintf(prefix,"%02X",cf->data[0]);
+
 		if(_protocol!=TP20 && (cf->data[offset]&0xF0) == 0x10) offset++; // multi-frame query 
 		resp = Module::fetchHistory(cf, 2);
 		if(fuzz && getFuzzLevel() > 0) doFuzz = true;
@@ -633,8 +637,10 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				}
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1880037F2178"; // porche: #19037F21784A0002 ??
-					else if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
-					else errPkt << hex << getNegativeResponder() << "#037F2231AAAAAAAA";
+					//else if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
+					else if(_protocol==BMW) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
+					//else errPkt << hex << getNegativeResponder() << "#037F2231AAAAAAAA";
+					else errPkt << hex << getNegativeResponder() << "#" << prefix << "037F2231AAAAAA" << (_offset?"":"AA");
 					resp.push_back(new CanFrame(errPkt.str()));
 				}
 				break;
@@ -651,9 +657,11 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				}
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1000037F2231"; // #1080037F2278
-					else if(cf->can_id==0x6F1){ // BMW
+					else if(_protocol==BMW){ // BMW
 						if(gd.get_module(0x600+cf->data[0])) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231";
-					} else errPkt << hex << getNegativeResponder() << "#037F2231AAAAAAAA";
+					} else errPkt << hex << getNegativeResponder() << "#" << prefix << "037F2231AAAAAAAA" << (_offset?"":"AA");
+					// else errPkt << hex << getNegativeResponder() << "#037F2231AAAAAAAA";
+
 					if(!errPkt.str().empty()) resp.push_back(new CanFrame(errPkt.str()));
 				}
 				break;

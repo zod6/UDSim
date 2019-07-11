@@ -37,7 +37,8 @@ enum Car_Type {
 	RENAULT,
 	NISSAN,
 	VOLVO,
-	PSA
+	PSA,
+	SUBARU
 };
 
 class Gui;

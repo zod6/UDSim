@@ -463,6 +463,10 @@ void GameData::processLearned() {
 				if(!responder) responder = GameData::get_module(it->getArbId() - 0xC0);
 				if(responder && it->foundResponse(responder)) set_car_type(PSA, "Peugeot", true);
 			}
+			if(type_is(SUBARU)){ // Subaru // some modules use prefix
+				responder = GameData::get_module(it->getArbId() + 0x08);
+				if(responder && it->foundResponse(responder)) set_car_type(SUBARU, "Subaru", true);
+			}
 			if(!responder){
 				responder = GameData::get_module(it->getArbId() + 0x09);
 				if(it->getArbId()==0x7DF && responder && it->foundResponse(responder)) { // OBD
