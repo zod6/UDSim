@@ -1,11 +1,11 @@
 #include "configparser.h"
 
-ConfigParser::ConfigParser() {
+extern GameData gd;
 
+ConfigParser::ConfigParser() {
 }
 
 ConfigParser::~ConfigParser() {
-
 }
 
 /* Ideally I wanted to use regex here but since g++ < 4.9 doesn't support
@@ -23,6 +23,10 @@ bool ConfigParser::parse(string config) {
   filename = config;
   _state = CONF_STATE_GLOBALS;
   conf.open(filename);
+  if(conf.fail()){
+	  cerr << "Error opening " << config << ": " << strerror(errno) << endl;
+	  return 0;
+  }
   while(getline(conf, line)) {
     // Remove comment character ';'
     pos = line.find(';');

@@ -18,8 +18,6 @@
 
 #include "gamedata.h"
 
-extern GameData gd;
-
 using namespace std;
 
 class LogParser

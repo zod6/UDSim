@@ -1,4 +1,5 @@
 #include "gamedata.h"
+#include <fstream>
 
 #define type_is(type) (car_type==type || car_type==NONE || car_type==AUTO)
 #define set_car_type(type, str, set_responders) { \
@@ -12,6 +13,8 @@
 			cout << "Manufacturer found: " << str << endl; \
 		} \
 	}
+
+extern GameData gd;
 
 GameData::GameData() { }
 
@@ -91,6 +94,7 @@ void GameData::setMode(int m) {
 }
 
 void GameData::processPkt(canfd_frame *cf) {
+	if((cf->can_id&CAN_SFF_MASK) < (gd.min_packet_addr<<8) && !(cf->can_id&CAN_EFF_FLAG)) return;
   switch(mode) {
     case MODE_SIM:
       GameData::HandleSim(cf, false);
@@ -110,10 +114,9 @@ void GameData::processPkt(canfd_frame *cf) {
 
 void GameData::HandleSim(canfd_frame *cf, int fuzz) {
 	Module *module = GameData::get_module(cf->can_id);
+	vector<canfd_frame> qry;
 	int offset=0;
 
-	//if(cf->can_id==0x6F1) offset=1; // possible BMW
-	
 	if(!module && cf->data[offset] == 0x30 && cf->len==8) module = GameData::get_module(cf->can_id - 1); // Flow control is special (?)
 
 	// ignore if module doesn't exists, must be ignored or is reponder
@@ -127,8 +130,8 @@ void GameData::HandleSim(canfd_frame *cf, int fuzz) {
 		int can_id;
 		char str[24];
 		// save first packet, set estimated packet count and wait
-		multiquery=*cf;
-		multiquery_cnt=PACKET_COUNT(cf, offset);
+		multiquery.clear();
+		multiquery.push_back(*cf);
 		can_id = module->getPositiveResponder(cf);
 		// sometimes 300F05AAAAAAAAAA; // send 15 frames before wait for next flow ctrl frame, 5ms between frames
 		if(!offset) snprintf(str, 23, "%03X#300002AAAAAAAAAA", can_id); // 3zXXYY, z: continue, XX: 0=remaining will be sent without flow ctrl or delay, YY: 2ms between frames
@@ -136,32 +139,36 @@ void GameData::HandleSim(canfd_frame *cf, int fuzz) {
 		canif->sendPackets( {new CanFrame(str)} );
 		return;
 	}
-	if((cf->data[0+offset]&0xF0) == 0x20 && multiquery.can_id){  // fastforward all consecutive packets // also check can_id??
-		multiquery_cnt--;
-		if(multiquery_cnt<1){
-			*cf=multiquery;	// now only process first packet
-			multiquery.can_id=0;
+	if((cf->data[0+offset]&0xF0) == 0x20 && multiquery.size()>0){  // fastforward all consecutive packets // also check can_id??
+		multiquery.push_back(*cf);
+		if(multiquery.size() >= PACKET_COUNT((&multiquery[0]), offset)){
+			//*cf=multiquery[0];	// now only process first packet
+			qry=multiquery;
+			multiquery.clear();
+			*cf=qry[0];
+			offset++; // applies to first packet
 		} else return;
-	}
+	} else qry.push_back(*cf);
 
 	//printf("%X:%02X%02X%02X%02X%02X%02X%02X%02X\n", cf->can_id, cf->data[0], cf->data[1], cf->data[2], cf->data[3], cf->data[4], cf->data[5], cf->data[6], cf->data[7]);
-	module->setState(STATE_ACTIVE);
+	module->setState(STATE_ACTIVE); // for GUI
 	if(_gui) _gui->DrawModules(true);
 
-	vector<CanFrame *>response = module->getResponse(cf, fuzz); // also process flow_ctrl
+	vector<CanFrame *>response = module->getResponse(qry, fuzz); // also process flow_ctrl
 	if(!response.empty()) {
 		//CanFrame *resFrame = response.at(0);
-		if (response.front()->len==8 && (response.front()->data[offset]&0xF0)==0x10){ // Multi-packet
+		if ( response.size() > 1 && is_first_multipacket(response.front(), module->getOffset())){ // Multi-packet
 			// send first and wait for 0x30...
 			canif->sendPackets( {response.front()} );
 			module->queue_set(response, 1);
 		} else { // Single packet
-			if(response.size() > 1 && cf->data[0+offset] != 0x30) {
+			if(response.size() > 1 && module->queue_get()->size()==0 && !module->get_sendall()){
 				// More than one possible answer, select a random one
 				if(random_packet) canif->sendPackets({response.at(rand() % response.size())});
 				else canif->sendPackets({response.front()});
 			} else {
 				canif->sendPackets(response);
+				if(module->queue_get()->size()==0) module->clear_sendall();
 			}
 		}
 	}
@@ -209,25 +216,25 @@ void GameData::Handle_TP20(canfd_frame *cf, Module *module) {
 		}
 
 		// more packets to follow (0x00 || 0x20). if first packet then save
-		if(!is_tp20_last_packet(cf->data[0]) && !multiquery.can_id) multiquery=*cf;
+		if(!is_tp20_last_packet(cf) && multiquery.size()==0) multiquery.push_back(*cf);
 
 		if((cf->data[0]&0xF0)==0x20) return;  // Not waiting for ACK, more packets to follow
 
-		if(is_tp20_waiting_ack(cf->data[0])){ // Waiting for ACK
-			if((cf->data[0]&0xF0)==0x00 && !multiquery.can_id) multiquery=*cf; // this is first packet. save
+		if(is_tp20_waiting_ack(cf)){ // Waiting for ACK
+			if((cf->data[0]&0xF0)==0x00 && multiquery.size()==0) multiquery.push_back(*cf); // this is first packet. save
 			snprintf(str, 7, "%03X#%02X", responder->getArbId(), 0xB0+(++ack_seq&0x0F));
 			canif->sendPackets({new CanFrame(str)});
 		}
 
-		if(is_tp20_last_packet(cf->data[0])){ // last packet
-			if(multiquery.can_id) *cf=multiquery; // use first packet
-			multiquery.can_id=0;
+		if(is_tp20_last_packet(cf)){ // last packet
+			if( multiquery.size()>0) *cf=multiquery[0]; // use first packet
+			multiquery.clear();
 			// find answers
-			vector<CanFrame *>response = module->getResponse(cf, false);
+			vector<CanFrame *>response = module->getResponse({*cf}, false);
 			if(!response.empty()) {
-				if(!is_tp20_last_packet(response.front()->data[0])){ // multipacket
+				if(!is_tp20_last_packet(response.front())){ // multipacket
 					for(vector<CanFrame *>::iterator it = response.begin(); it != response.end(); ++it) (*it)->data[0]=((*it)->data[0]&0xF0) + (++ack_seq&0x0F); // replace all seq
-					if(is_tp20_waiting_ack(response.front()->data[0])){
+					if(is_tp20_waiting_ack(response.front())){
 						canif->sendPackets( {response.front()} );
 						module->queue_set(response, 1);
 					} else { // send all at once. let's hope ack not needed in the middle
@@ -274,7 +281,6 @@ void GameData::LearnPacket(canfd_frame *cf) {
 	//if((module || possible_module) && cf->can_id==0x755) printf("%X:%02X%02X%02X%02X%02X%02X%02X%02X\n", cf->can_id, cf->data[0], cf->data[1], cf->data[2], cf->data[3], cf->data[4], cf->data[5], cf->data[6], cf->data[7]);
 
 	// If module exists then we have seen this ID before
-	// todo: set offset for bmw etc
 	if(module) {
 		module->addPacket(cf);
 		if(possible_module) {
@@ -286,7 +292,7 @@ void GameData::LearnPacket(canfd_frame *cf) {
 				module->incMatchedISOTP();
 			} else if(cf->data[0] == 0x30 && (cf->len == 3 || cf->len == 8)) { // flow ctrl can come from different address
 				module->incMatchedISOTP();
-			} else if(cf->data[0] >= 0x21 || cf->data[0] <= 0x30) { // possible multipacket
+			} else if(cf->len==8 && cf->data[0] >= 0x21 && cf->data[0] <= 0x22) { // possible multipacket (match first 2)
 				module->incMatchedISOTP();
 			} else {
 				module->incMissedISOTP();
@@ -301,6 +307,7 @@ void GameData::LearnPacket(canfd_frame *cf) {
 	}
 }
 
+// matches too much
 Module *GameData::isPossibleISOTP(canfd_frame *cf) {
 	int i, offset;
 	bool padding = false;
@@ -326,13 +333,14 @@ Module *GameData::isPossibleISOTP(canfd_frame *cf) {
 		return possible;
 	}
 
-	// todo: use offset
 	if(	cf->can_id==0x6F1 										// Possible BMW gateway
 			|| ((cf->can_id>>8)==0x6 && cf->data[0]==0xF1) ) {	// possible BMW response (612#F1046C01F303)
 		possible = new Module(cf->can_id);
 		if(cf->can_id!=0x6F1) possible->setResponder(true);	// BMW uses first byte for addressing
-		possible->setProtocol(BMW);
+		possible->setProtocol(BMW_P);
 		possible->setOffset(1);
+	} else if( ((cf->can_id>0x540 && cf->can_id<0x560) || (cf->can_id>=0x5e8 && cf->can_id<0x5f0)) && cf->data[0] == 0x81) { // GMLAN DTC. other possible values are 0x00, 0xFE, 0xFD, ...
+		possible = new Module(cf->can_id);
 	} else {
 		for(offset=0; offset<2; offset++){
 			if(cf->data[offset] == cf->len - 1 - offset					// Possible UDS request
@@ -376,7 +384,8 @@ void GameData::pruneModules() {
 	if(it->getPositiveResponder() > -1 || it->getNegativeResponder() > -1)  keep = true;
 	if(it->isResponder()) keep = true;
 	if(it->getProtocol()==TP20) keep = true;
-	if(it->confidence() > CONFIDENCE_THRESHOLD) {
+	if(confidence_threshold>100) keep = true;
+	if(confidence_threshold>0 && it->confidence() > confidence_threshold) {
       if(!keep && it->getMatchedISOTP() > 0) keep = true;
     }
 
@@ -395,20 +404,40 @@ void GameData::processLearned() {
 	if(verbose) cout << "Locating responders" << endl;
 	for(vector<Module>::iterator it = modules.begin(); it != modules.end(); ++it) {
 		Module *responder = NULL;
+		if(it->getArbId()==0x7DF && (responder=GameData::get_module(0x7E8))!=NULL ){ // OBD
+			it->setPositiveResponderID(0x7E8);
+			it->setNegativeResponderID(0x7E8);
+			responder->setResponder(true);
+			continue;
+		}
+
 		if(it->isResponder() == false) {
+			if(it->getArbId()>=0x7E0 && it->getArbId()<0x7E8 && (responder = it->get_module_with_response(it->getArbId() + 0x08))!=NULL ){ // general
+				it->setPositiveResponderID(responder->getArbId());
+				it->setNegativeResponderID(responder->getArbId());
+				responder->setResponder(true);
+				if(type_is(GM2) && (responder=it->get_module_gmlan_uudt(it->getArbId() - 0x1F8))){ responder->setResponder(true); responder->setOffset(0); } // GMLan UUDT answer // 7E0->5E8->7E8
+				continue;
+			}
+
 			if(type_is(GM)){
-				responder = GameData::get_module(it->getArbId() + 0x300);
-				if(responder && it->foundResponse(responder)) { // GM style positive response
+				responder = it->get_module_with_response(it->getArbId() + 0x300);
+				if(!responder) responder = it->get_module_with_response(it->getArbId() + 0x20); // Opel LD
+				if(responder) { // GM style positive response
 					it->setPositiveResponderID(responder->getArbId());
 					set_car_type(GM,"GM", false);
 				}
 			}
 			if(type_is(GM2)){
+				// GMW3110-2010.pdf, page 25. UUDT. page 201 DTC
+				// https://cdn.intrepidcs.net/support/VehicleSpy/spyExampleDTCPart1.htm
+				// req 241-25F
 				responder = GameData::get_module(it->getArbId() + 0x400);
-				if(responder && it->foundResponse(responder)) { // GM style negative response
+				if(responder && it->foundResponse(responder)) { // some (old?) GM have different negative and positive responses
 					if(it->getPositiveResponder()==-1) it->setPositiveResponderID(responder->getArbId()); // Opel
 					it->setNegativeResponderID(responder->getArbId());
 					set_car_type(GM2,"GM2", false);
+					if(it->getArbId()>0x240 && it->getArbId()<0x260 && (responder=it->get_module_gmlan_uudt(it->getArbId() + 0x300))) responder->setResponder(true);	// GMLan UUDT answer // 241(USDT req)->541(UUDT)->641(USDT resp)
 				}
 			}
 
@@ -423,7 +452,9 @@ void GameData::processLearned() {
 
 			if(type_is(VAG)){
 				if(it->getProtocol()==TP20){
-					if(GameData::process_TP20(&(*it))) set_car_type(VAG, "VAG", false);
+					if(GameData::process_TP20(&(*it))){
+						set_car_type(VAG, "VAG", false);
+					}
 				} else {
 					responder = GameData::get_module(it->getArbId() + 0x6A);
 					if(!responder && it->getArbId()>0x10000000) responder = GameData::get_module(it->getArbId() + 0x20000); // newer Audi
@@ -438,13 +469,18 @@ void GameData::processLearned() {
 				if(responder && it->foundResponse(responder)) set_car_type(RENAULT, "Renault", true);
 			}
 			if(type_is(MB)){
-				responder = GameData::get_module(it->getArbId() - 0x80);
-				if(responder && it->foundResponse(responder)){
-					set_car_type(MB, "Mercedes-Benz", true);
-				} else if(it->getArbId()>0x600 && it->getArbId()<0x800 && (it->getArbId()%8==1 || it->getArbId()%8==2 || it->getArbId()%8==3) ) { // there may be other modules but hasn't encountered them yet
-					responder = GameData::get_module(0x400 + 0x40*(it->getArbId()%8) + (int)((it->getArbId()-0x600)/8)); // 0x691->0x452, 0x602->0x480, 0x6A3->0x4D4 
+				responder = it->get_module_with_response(it->getArbId() - 0x80);
+				if( !responder && it->getArbId()>0x600 && it->getArbId()<0x800
+						&& (it->getArbId()%8==1 || it->getArbId()%8==2 || it->getArbId()%8==3) ) { // there may be other modules but haven't seen them yet
+					responder = it->get_module_with_response(0x400 + 0x40*(it->getArbId()%8) + (int)((it->getArbId()-0x600)/8)); // 0x691->0x452, 0x602->0x480, 0x6A3->0x4D4 
 				}
-				if(responder && it->foundResponse(responder)) set_car_type(MB, "Mercedes-Benz", true);
+				// Light-Duty vehicles
+				if( !responder && it->getArbId()==0x703) responder = it->get_module_with_response(0x4F0); // what is this?
+				if( !responder && it->getArbId()==0x4E0) responder = it->get_module_with_response(0x5FF);
+				if( !responder && it->getArbId()>0x700) responder = it->get_module_with_response(it->getArbId()+0x01);
+				if( !responder && it->getArbId()>0x500) responder = it->get_module_with_response(it->getArbId()%0x20 + 0x4E0); // 0x5D6->0x4F6, 0x667->0x4E7, 0x791->0x4F1
+
+				if(responder) set_car_type(MB, "Mercedes-Benz", true);
 			}
 			if(type_is(VOLVO) && it->getArbId()>0x1DD01000){ // Volvo
 				responder = GameData::get_module(0x1E000E80 + ((2*((it->getArbId()>>8)&0x0F))<<20) + (((it->getArbId()&0xff)*2)<<12));
@@ -463,28 +499,18 @@ void GameData::processLearned() {
 				if(!responder) responder = GameData::get_module(it->getArbId() - 0xC0);
 				if(responder && it->foundResponse(responder)) set_car_type(PSA, "Peugeot", true);
 			}
-			if(type_is(SUBARU)){ // Subaru // some modules use prefix
+			if(type_is(SUBARU)){ // Subaru // some modules use prefix // and also Ford
 				responder = GameData::get_module(it->getArbId() + 0x08);
 				if(responder && it->foundResponse(responder)) set_car_type(SUBARU, "Subaru", true);
 			}
+			// still not found
 			if(!responder){
-				responder = GameData::get_module(it->getArbId() + 0x09);
-				if(it->getArbId()==0x7DF && responder && it->foundResponse(responder)) { // OBD
-					it->setPositiveResponderID(responder->getArbId());
-					it->setNegativeResponderID(responder->getArbId());
-					responder->setResponder(true);
-				}
-				responder = GameData::get_module(it->getArbId() + 0x08);
-				if(responder && it->foundResponse(responder)) { // Standard response
-					it->setPositiveResponderID(responder->getArbId());
-					it->setNegativeResponderID(responder->getArbId());
-					responder->setResponder(true);
-				}
-				responder = GameData::get_module(it->getArbId() + 0x01); // what car/module matches this?
-				if(responder && it->foundResponse(responder)) { // check for flow control
+				responder = it->get_module_with_response(it->getArbId() + 0x01); // MB LD. what else ???
+				if(responder) { // check for flow control
 					vector<CanFrame *>pkts = responder->getPacketsByBytePos(0, 0x30); // what? query can also be several packets
 					if(pkts.size() > 0) responder->setResponder(true);
 				}
+				if( (responder = it->get_module_with_response(it->getArbId() - 0x24)) ) responder->setResponder(true); // only set as responder (0x7df->0x7bb) // hyundai
 			}
 		}
 	}
@@ -698,9 +724,7 @@ void GameData::processCan() {
 		if(verbose) Msg(pkt->str());
 		cf.can_id = pkt->can_id;
 		cf.len = pkt->len;
-		for(i=0; i < pkt->len; i++) {
-			cf.data[i] = pkt->data[i];
-		}
+		for(i=0; i < pkt->len; i++) cf.data[i] = pkt->data[i];
 		GameData::processPkt(&cf);
 	}
 //	SDL_Delay(1); // we use blocking select?

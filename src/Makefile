@@ -2,7 +2,7 @@ BIN ?= udsim
 CC = g++
 CFLAGS = -std=gnu++11 -Iinclude -Wall -O2
 X86_PARAMS ?= -DSDL -I/usr/include/SDL2
-LDFLAGS ?= -lSDL2 -lSDL2_image -lSDL2_ttf
+LDFLAGS ?= -lSDL2 -lSDL2_image -lSDL2_ttf -lpthread
 #OBJS = main.o gui.o logparser.o module.o gamedata.o can.o canframe.o icon-button.o configparser.o input.o
 SRCS = $(wildcard *.cc) $(wildcard *.c)
 OBJS := $(addsuffix .o,$(basename $(SRCS)))
@@ -31,7 +31,7 @@ x86:
 	make all TOOLCHAIN=
 
 nogui: X86_PARAMS =
-nogui: LDFLAGS = 
+nogui: LDFLAGS = -lpthread
 nogui: all
 
 mipsel:

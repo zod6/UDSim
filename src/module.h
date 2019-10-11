@@ -5,25 +5,27 @@
 #include <vector>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #ifdef SDL
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 #endif
 
 // very long answers could contain more than 0xff characters but haven't seen in TP20 yet
-#define is_tp20_multipacket(byte) (!(byte&0x10) && byte<0x40)	// not last. more to follow
-#define is_tp20_last_packet(byte) (byte&0x10)					// 0x10 || 0x30
-#define is_tp20_waiting_ack(byte) !(byte&0x20)					// 0x00 || 0x10
+#define is_tp20_multipacket(cf) (!(cf->data[0]&0x10) && cf->data[0]<0x40)	// not last. more to follow
+#define is_tp20_last_packet(cf) (cf->data[0]&0x10)					// 0x10 || 0x30
+#define is_tp20_waiting_ack(cf) !(cf->data[0]&0x20)					// 0x00 || 0x10
 
 #define is_first_multipacket(cf, offset) ((cf->data[offset]&0xF0) == 0x10 && cf->len==8 && (((cf->data[0+offset]&0x0F)<<8)+cf->data[1+offset]+1) > (7-offset))
-#define PACKET_COUNT(cf, offset) ((cf->data[offset] < 0x10 ? 1 : ceil((double)(((cf->data[offset]&0x0F)<<8)+cf->data[1+offset]+1)/(7-offset))-1))
+#define is_first_packet(cf, offset) (cf->data[offset]<8 ||is_first_multipacket(cf, offset))
+#define PACKET_COUNT(cf, offset) ((cf->data[offset] < 0x10 ? 1 : (unsigned int)ceil((double)(((cf->data[offset]&0x0F)<<8)+cf->data[1+offset]+1)/(7-offset))))
 
 extern const char *Protocol_str[]; // module.cc
 
 // also update Protocol_str in gamedata.cc
 enum Protocol {
 	UDS,
-	BMW,	// UDS through 0x6F1
+	BMW_P,	// UDS through 0x6F1
 	TP20	// VAG
 };
 
@@ -34,7 +36,6 @@ using namespace std;
 
 class GameData;
 
-extern GameData gd;
 
 #define STATE_IDLE      0
 #define STATE_ACTIVE    1
@@ -78,6 +79,8 @@ class Module
   vector <CanFrame *>getPacketsByBytePos(unsigned int, unsigned char);
   vector <CanFrame *>getPacketsByMask(uint8_t*, uint8_t*,int);
   bool foundResponse(Module *);
+  Module *get_module_with_response(int);
+  Module *get_module_gmlan_uudt(int);
   int getState();		// for GUI
   void setState(int s); // for GUI
   int getX() { return _x; }
@@ -88,7 +91,8 @@ class Module
   SDL_Texture *getIdTexture() { return id_texture; }
   void setIdTexture(SDL_Texture *t) { id_texture = t; }
 #endif
-  vector <CanFrame *>getResponse(struct canfd_frame *,bool);
+  //vector <CanFrame *>getResponse(struct canfd_frame *,bool);
+  vector <CanFrame *>getResponse(vector<struct canfd_frame>,bool);
   void toggleFakeResponses() { _fake_responses ? _fake_responses = false : _fake_responses = true; }
   void setFakeResponses(bool t) { _fake_responses = t; }
   bool getFakeResponses() { return _fake_responses; }
@@ -111,6 +115,9 @@ class Module
   unsigned int getActiveTicks() { return _activeTicks; }
   void queue_set(vector <CanFrame *> v, int offset){ _queue.assign(v.begin() + offset, v.end()); }
   vector <CanFrame *> *queue_get() { return &_queue; }
+  bool get_sendall() { return _sendall; }
+  void set_sendall() { _sendall = true; }
+  void clear_sendall() { _sendall = false; }
   void setProtocol(Protocol p){ _protocol=p; }
   void setProtocol(const char*);
   Protocol getProtocol(){ return _protocol; }
@@ -127,11 +134,9 @@ class Module
   int _activeTicks = 0;
   int _x = 0;
   int _y = 0;
-#ifdef SDL
-  SDL_Texture *id_texture = NULL;
-#endif
   vector<CanFrame *>can_history;
   vector<CanFrame *>_queue; // hold multi-line response temporarily until 0x30... comes
+  bool _sendall = false;		// send all at once. don't pick from results
   bool _expect_consecutive_frame = false;
   CanFrame *_repair_frame = NULL; // sometimes we have missing packets. try to repair queue (pointer to can_history element)
   unsigned int _repair_frame_num = 0;
@@ -143,6 +148,9 @@ class Module
   bool _ignore = false;
   Protocol _protocol = UDS;
   int _offset = 0;
+#ifdef SDL
+  SDL_Texture *id_texture = NULL;
+#endif
 };
 
 #endif

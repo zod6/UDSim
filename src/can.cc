@@ -137,7 +137,7 @@ vector <CanFrame *>Can::getPackets() {
 	FD_ZERO(&rdfs);
 	FD_SET(_canfd, &rdfs);
 	timeo.tv_sec  = 0;
-	timeo.tv_usec = 1000; // waiting for 1ms helps to reduce CPU
+	timeo.tv_usec = 2000; // waiting for 2ms helps to reduce CPU
 
 	if ((ret = select(_canfd+1, &rdfs, NULL, NULL, &timeo)) < 0) {
 		cout << "Error: Interface is probably down" << endl;
@@ -163,6 +163,10 @@ vector <CanFrame *>Can::getPackets() {
 void Can::sendPackets(vector <CanFrame *>pkts) {
 	sendPackets(pkts, 0); // generic
 }
+void Can::sendPackets(CanFrame *cf) {
+	sendPackets({cf}, 0); // generic
+}
+
 void Can::sendPackets_TP20(vector <CanFrame *>pkts) {
 	sendPackets(pkts, 1); // tp20 hack
 }
@@ -199,3 +203,4 @@ void Can::sendPackets(vector <CanFrame *>pkts, int tp20) {
 		}
 	}
 }
+

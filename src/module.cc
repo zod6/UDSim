@@ -1,5 +1,6 @@
 #include "module.h"
 
+extern GameData gd;
 const char *Protocol_str[] = { "UDS", "BMW", "TP20", NULL }; // extern
 
 Module::Module(int id) {
@@ -18,8 +19,8 @@ void Module::setProtocol(const char* str){
 /* Calculates the confidence that it is a UDS module based on seen ISOTP packets to non */
 float Module::confidence() {
   if (getMatchedISOTP() == 0) return 0;
-  float total = getMatchedISOTP() + getMissedISOTP();
-  return (float)getMatchedISOTP() / total;
+  int total = getMatchedISOTP() + getMissedISOTP();
+  return getMatchedISOTP() * 100 / total;
 }
 
 int Module::getPositiveResponder(struct canfd_frame *cf){
@@ -39,7 +40,6 @@ void Module::addPacket(struct canfd_frame *cf) {
 
     if(_protocol==TP20 && cf->can_id>0x200 && cf->data[1]!=0xD0){ addPacket_TP20(cf); return; } // handle 0x200 and it's response like normal packet
 
-	//if(_protocol==BMW || ((cf->can_id>>8)==0x6 && cf->data[0]==0xF1) || cf->can_id==0x6F1) offset++; // BMW
 	offset=_offset;
 	if(_repair_frame!=NULL && (cf->data[0+offset]&0xF0) == 0x20){
 		Module::repair_queue(cf); // sometimes my extended frames have 'holes'
@@ -61,7 +61,7 @@ void Module::addPacket(struct canfd_frame *cf) {
 			if(_expect_consecutive_frame==true && can_history.back()){
 				// check order and correct
 				if( can_history.back()->queue.size()==0 || cf->data[offset] > can_history.back()->queue.back()->data[offset] // new order is larger than old one (0x22 > 0x21)
-						|| PACKET_COUNT(can_history.back(), offset) > 15 ){  // more than 15 lines and numbers starting to repeat
+						|| PACKET_COUNT(can_history.back(), offset) > 16 ){  // more than 15 lines and numbers starting to repeat
 					can_history.back()->queue.push_back(new CanFrame(cf));
 				} else {
 					int pos=(cf->data[offset]&0x0F)-1;
@@ -79,7 +79,7 @@ void Module::addPacket(struct canfd_frame *cf) {
 		_repair_frame=NULL;
 	} else {
 		// test for missing multi-frames
-		if( is_first_multipacket(cf,offset) && old_frame->queue.size() < PACKET_COUNT(cf, offset) ){ _repair_frame=old_frame; _repair_frame_num=1; }
+		if( gd.config_repair_frame && is_first_multipacket(cf,offset) && (old_frame->queue.size()+1) < PACKET_COUNT(cf, offset) ){ _repair_frame=old_frame; _repair_frame_num=1; } // queue starts from #21.... so -1 here
 		else _repair_frame=NULL;
 		_expect_consecutive_frame=false;
 	}
@@ -94,7 +94,7 @@ void Module::addPacket_TP20(struct canfd_frame *cf) {
 
 	// skip frames if we already have them. stop skipping when last packet encountered
 	if(_repair_frame!=NULL && cf->can_id>=0x200 && (cf->data[0]&0xF0)<0x40){
-		if(is_tp20_last_packet(cf->data[0])) _repair_frame=NULL;
+		if(is_tp20_last_packet(cf)) _repair_frame=NULL;
 		//Module::repair_queue(cf); // TP20 not implemented
 		return;
 	}
@@ -108,11 +108,11 @@ void Module::addPacket_TP20(struct canfd_frame *cf) {
 	if(!dup_found) {
 		if((cf->data[0]&0xF0)<0x40 && _expect_consecutive_frame==true && can_history.back()) can_history.back()->queue.push_back(new CanFrame(cf)); // data packet
 		else can_history.push_back(new CanFrame(cf));
-		if( cf->can_id>=0x200 && is_tp20_multipacket(cf->data[0]) ) _expect_consecutive_frame=true; // data packet, more to follow
+		if( cf->can_id>=0x200 && is_tp20_multipacket(cf) ) _expect_consecutive_frame=true; // data packet, more to follow
 		else _expect_consecutive_frame=false;
 		_repair_frame=NULL;
 	} else {
-		if( cf->can_id>=0x300 && is_tp20_multipacket(cf->data[0]) ){ _repair_frame=old_frame; _repair_frame_num=1; } 
+		if( cf->can_id>=0x300 && is_tp20_multipacket(cf) ){ _repair_frame=old_frame; _repair_frame_num=1; } 
 		else _repair_frame=NULL;
 		if(cf->data[0]!=0xA1) _expect_consecutive_frame=false; 	// parameters response can be inside data
 	}
@@ -123,7 +123,6 @@ void Module::repair_queue(canfd_frame *cf){
 	int offset=0;
 	if(_repair_frame==NULL || _protocol==TP20) return;
 
-	//if(((cf->can_id>>8)==0x6 && cf->data[0]==0xF1) || cf->can_id==0x6F1) offset++; // BMW
 	offset=_offset;
 	if(_repair_frame_num%16 != (cf->data[offset]&0x0F)) { // new data also has holes. ff one frame
 		_repair_frame_num++;
@@ -152,9 +151,16 @@ void Module::repair_queue(canfd_frame *cf){
 	return;
 }
 
+Module *Module::get_module_with_response(int id){
+	Module *responder=gd.get_module(id);
+	if(responder && foundResponse(responder)) return responder;
+	return NULL;
+}
+
 // Searches a given module for something that resemble a proper ISO-TP response
 bool Module::foundResponse(Module *responder) {
 	vector <CanFrame *>possible_resp;
+	if(!responder) return false;
 	// first pass: check for standard response. second pass: check for extended response
 	for(int pass=0; pass<2; pass++){
 		for(vector<CanFrame *>::iterator it = can_history.begin(); it != can_history.end(); ++it) {
@@ -171,6 +177,19 @@ bool Module::foundResponse(Module *responder) {
 		}
 	}
 	return false;
+}
+
+// 249#03A9811A00000000 -> 549#8100000093000000
+// 254#05AA03FEFDFC0000 -> 554#FE000001AA007242,554#FD00000002000001,554#FC73200000000000
+Module *Module::get_module_gmlan_uudt(int id){
+	vector <CanFrame *>cfs;
+	Module *responder=gd.get_module(id);
+	if(!responder) return NULL;
+	for(vector<CanFrame *>::iterator it = can_history.begin(); it != can_history.end(); ++it) {
+		if((*it)->data[0]==0x03 && (*it)->data[1]==0xA9 && (responder->getPacketsByBytePos(0, (*it)->data[2])).size()>0) return responder;
+		if((*it)->data[1]==0xAA && (responder->getPacketsByBytePos(0, (*it)->data[3])).size()>0) return responder; // sometimes only xxx#03AA03FF00000000 etc :(
+	}
+	return NULL;
 }
 
 void Module::addPacket(string packet) {
@@ -342,18 +361,25 @@ vector <CanFrame *>Module::fetchHistory(struct canfd_frame *cf, int max_level) {
 	int resp_offset=0;	// response offset
 	vector <CanFrame *>resp;
 	Module *responder = gd.get_module(getPositiveResponder(cf), cf->can_id);
+	vector <Module*>responders;
+
+	// not used. yet.
+	//if(!gd.multiple_responses_7df || cf->can_id!=0x7df) responders.push_back(gd.get_module(getPositiveResponder(cf), cf->can_id));
+	if((gd.multiple_responses_7df && cf->can_id==0x7df) || (_protocol==BMW_P && cf->data[0]==0xDF)){
+		for(vector<Module>::iterator it = gd.modules.begin(); it != gd.modules.end(); ++it) if(it->isResponder()) responders.push_back(&*it);
+	} else if(responder != NULL) responders.push_back(responder);
 
 	if(_protocol==TP20){ req_offset=2; resp_offset=2; }
 	else {
-		//if(cf->can_id==0x6F1){ req_offset=1; resp_offset=1; } // BMW
 		req_offset=resp_offset=_offset;
 		if(cf->data[req_offset] == 0x10) req_offset++;
 	}
 	if(cf->data[req_offset]<max_level) max_level=cf->data[req_offset];
 
 	//if(responder != NULL && getPacketsByBytePos(1+resp_offset, cf->data[1+req_offset]).size() > 0 ) {} // responder exists and we have seen a request cmd like this before
-	if(responder != NULL){
-		for(vector<CanFrame *>::iterator it = responder->can_history.begin(); it != responder->can_history.end(); ++it) {
+	//if(responder != NULL){
+	for(vector<Module*>::iterator responder=responders.begin(); responder != responders.end(); responder++){
+		for(vector<CanFrame *>::iterator it = (*responder)->can_history.begin(); it != (*responder)->can_history.end(); ++it) {
 			uint8_t pcf_offset=resp_offset;
 			CanFrame *pcf= *it;
 			// TP20 length is always 2 bytes
@@ -363,14 +389,17 @@ vector <CanFrame *>Module::fetchHistory(struct canfd_frame *cf, int max_level) {
 			} else if(pcf->data[pcf_offset] < max_level) continue;	// response cannot be shorter than request
 
 			if( pcf->len > max_level+pcf_offset 													// response cannot be shorter than request
-					&& ( !_offset || (_protocol==UDS && pcf->data[0]==cf->data[0]) )				// if UDS extended addressing then compare first byte (subaru, peugeot)
+					&& ( _protocol!=UDS || !_offset || pcf->data[0]==cf->data[0])					// if UDS extended addressing then compare first byte (subaru, peugeot)
 					&& (				pcf->data[1+pcf_offset]==cf->data[1+req_offset] + 0x40 )	// resp_cmd  == req_cmd
 					&& ( max_level<2 ||	pcf->data[2+pcf_offset]==cf->data[2+req_offset] )			// resp_func == req_func
 					&& ( max_level<3 ||	pcf->data[3+pcf_offset]==cf->data[3+req_offset] ) )			// resp_subf == req_subf
 			{
 				resp.push_back(pcf);
-				if(pcf->queue.size()>0) for(vector<CanFrame *>::iterator it2 = pcf->queue.begin(); it2 != pcf->queue.end(); ++it2) resp.push_back(*it2);
-				if(resp.size()>0) break;
+				if(pcf->queue.size()>0){
+				   for(vector<CanFrame *>::iterator it2 = pcf->queue.begin(); it2 != pcf->queue.end(); ++it2) resp.push_back(*it2);
+				   break; // single answer if multipacket
+				}
+				//if(resp.size()>0) break; // this breaks random answers
 			}
 		}
 	}
@@ -505,19 +534,20 @@ vector <CanFrame *>Module::fuzzResp(vector <CanFrame *>resp, struct canfd_frame 
  *    2) Any possible negative responses
  * 3) Any generic answers
  */
-vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
+//vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) 
+vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuzz) {
 	vector <CanFrame *>resp;
 	stringstream ss, errPkt;
+	Module *module;
+	struct canfd_frame *cf=&qry[0];
 
 	bool doFuzz = false;
 	int offset=0;
 
 	if(_protocol==TP20) offset=2;
 	else offset=_offset;
-	//if(cf->can_id==0x6F1) offset=1; // BMW
 
 	if(cf->data[offset] == 0x30 && _protocol!=TP20) {  // Flow Control
-		Module *module;
 		if(_queue.size() > 0) {
 			if(cf->data[1+offset]==0){ // block size == 0
 				resp = _queue;
@@ -533,6 +563,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 		} else if(cf->can_id==0x18DA10F1 && (module=gd.get_module(0x18DB33F1))){ // PSA OBD flow-ctrl hack
 			if(module->_queue.size()>0){ resp = module->_queue; module->_queue.clear(); }
 		}
+		_sendall=true;
 	} else if (cf->len > (1+offset)) {
 		char prefix[3]=""; // for extended addressing and error response
 		if(_protocol==UDS && _offset) sprintf(prefix,"%02X",cf->data[0]);
@@ -588,7 +619,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				ss << hex << cf->can_id << ": Initiate Diagnostic";
 				// ss << hex << cf->can_id << ": Diagnostic Control";
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) { // todo: negative with offset
-					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1000037F1012";
+					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1000037F1012"; // 0x12==subFunctionNotSupported
 					else if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F1012"; // BMW
 					else errPkt << hex << getNegativeResponder() << "#037F1012AAAAAAAA";
 					resp.push_back(new CanFrame(errPkt.str()));
@@ -616,7 +647,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 			case 0x1A:
 				ss << hex << cf->can_id << ": (GMLAN) Read DID by ID";
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
-					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1000037F1A11";
+					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1000037F1A11"; // 0x11==serviceNotSupported
 					else if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F1A11"; // BMW
 					else errPkt << hex << getNegativeResponder() << "#037F1A11AAAAAAAA";
 					resp.push_back(new CanFrame(errPkt.str()));
@@ -627,19 +658,17 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				break;
 			case 0x21: // only TP20?
 				ss << hex << cf->can_id << ": KWP2000 readDataByLocalIdentifier ";
-				if(0 && resp.size() == 0 && gd.autoresponse){ // todo: TP20 autoresponses
+				if(resp.size() == 0 && gd.autoresponse){ // todo: TP20 autoresponses
 					Module *responder = gd.get_module(getPositiveResponder(cf));
 					if(responder!=NULL){
 						char str[30];
-						snprintf(str, 23, "%03X#0462%02X%02X01010101", responder->getArbId(), cf->data[2+offset], cf->data[3+offset]);
+						snprintf(str, 23, "%03X#%s0361%02X01010101%s", responder->getArbId(), prefix, cf->data[2+offset], (_offset?"01":""));
 						resp.push_back(new CanFrame(str));
 					}
 				}
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1880037F2178"; // porche: #19037F21784A0002 ??
-					//else if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
-					else if(_protocol==BMW) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
-					//else errPkt << hex << getNegativeResponder() << "#037F2231AAAAAAAA";
+					else if(_protocol==BMW_P) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
 					else errPkt << hex << getNegativeResponder() << "#" << prefix << "037F2231AAAAAA" << (_offset?"":"AA");
 					resp.push_back(new CanFrame(errPkt.str()));
 				}
@@ -651,16 +680,15 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 					Module *responder = gd.get_module(getPositiveResponder(cf));
 					if(responder!=NULL){
 						char str[30];
-						snprintf(str, 23, "%03X#0462%02X%02X01010101", responder->getArbId(), cf->data[2+offset], cf->data[3+offset]);
+						snprintf(str, 23, "%03X#%s0462%02X%02X010101%s", responder->getArbId(), prefix, cf->data[2+offset], cf->data[3+offset], (_offset?"01":""));
 						resp.push_back(new CanFrame(str));
 					}
 				}
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1000037F2231"; // #1080037F2278
-					else if(_protocol==BMW){ // BMW
-						if(gd.get_module(0x600+cf->data[0])) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231";
+					else if(_protocol==BMW_P){ // BMW
+						if(gd.get_module(0x600+cf->data[0])) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // 0x31==requestOutOfRange
 					} else errPkt << hex << getNegativeResponder() << "#" << prefix << "037F2231AAAAAAAA" << (_offset?"":"AA");
-					// else errPkt << hex << getNegativeResponder() << "#037F2231AAAAAAAA";
 
 					if(!errPkt.str().empty()) resp.push_back(new CanFrame(errPkt.str()));
 				}
@@ -673,12 +701,12 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				break;
 			case 0x27:
 				ss << hex << cf->can_id << ": Security Access";
-				resp = Module::fetchHistory(cf, 3);
+				//resp = Module::fetchHistory(cf, 3); // usually it's 2
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F2735"; // BMW
 					else {
-						if(gd.autoresponse) errPkt << hex << getNegativeResponder() << "#0267" << cf->data[2+offset] << "0000000000";
-						else errPkt << hex << getNegativeResponder() << "#037F273500000000";
+						if(gd.autoresponse) errPkt << hex << getNegativeResponder() << "#0267" << (int)cf->data[2+offset] << "0000000000";
+						else errPkt << hex << getNegativeResponder() << "#037F273500000000"; // 0x35==invalidKey
 						resp.push_back(new CanFrame(errPkt.str()));
 					}
 				}
@@ -691,6 +719,11 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				break;
 			case 0x2C:
 				ss << hex << cf->can_id << ": Define Data ID";
+				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
+					if(gd.autoresponse) errPkt << hex << getNegativeResponder() << "#026C" << (int)cf->data[2+offset] << "0000000000";
+					else errPkt << hex << getNegativeResponder() << "#037F2C3100000000"; // 0x31==requestOutOfRange
+					resp.push_back(new CanFrame(errPkt.str()));
+				}
 				break;
 			case 0x2E:
 				ss << hex << cf->can_id << ": Write Data by ID";
@@ -705,7 +738,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				}
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(cf->can_id==0x6F1) errPkt << hex << getNegativeResponder(cf) << "#F1037F2E31"; // BMW
-					else errPkt << hex << getNegativeResponder() << "#037F2E31AAAAAAAA";
+					else errPkt << hex << getNegativeResponder() << "#037F2E31AAAAAAAA"; // 0x31==requestOutOfRange
 					resp.push_back(new CanFrame(errPkt.str()));
 				}
 				break;
@@ -727,7 +760,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 					resp=gd.get_module(getPositiveResponder(cf))->getPacketsByMask(data, mask, 8);
 					if(resp.size()>0 && resp[0]->queue.size()>0) for(vector<CanFrame *>::iterator it2 = resp[0]->queue.begin(); it2 != resp[0]->queue.end(); ++it2) resp.push_back(*it2);
 					if(resp.size()==0){
-						errPkt << hex << getPositiveResponder() << "#037F351200000000";
+						errPkt << hex << getPositiveResponder() << "#037F351200000000"; // 0x12==subFunctionNotSupported
 						resp.push_back(new CanFrame(errPkt.str()));
 					}
 				}
@@ -746,6 +779,7 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				break;
 			case 0x3E:
 				ss << hex << cf->can_id << ": Tester Present";
+				if(resp.size()==0) resp = Module::fetchHistory(cf, 1);
 				break;
 			case 0x83:
 				ss << hex << cf->can_id << ": Access Timing";
@@ -769,10 +803,35 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 				ss << hex << cf->can_id << ": (GMLAN) Programing Mode";
 				break;
 			case 0xA9:
-				ss << hex << cf->can_id << ": (GMLAN) Read Diag Info";
+				ss << hex << cf->can_id << ": (GMLAN) Read Diag Info"; // DTC
+				if((module=gd.get_module(cf->can_id+(cf->can_id>0x7DF?-0x1F8:0x300)))!=NULL && module->isResponder()){
+					resp=module->getPacketsByBytePos(0, cf->data[2]);
+				}
 				break;
-			case 0xAA:
+			case 0xAA: // GMW3110-2010.pdf, page 213
 				ss << hex << cf->can_id << ": (GMLAN) Read Data by ID";
+				// 254#05AA03FEFDFC0000 -> 554#FE000001AA007242,554#FD00000002000001,554#FC73200000000000; must repeat these until next #02AA00 comes
+				// byte2: $02=sendAtSlowRate (1000ms), $03=sendAtMediumRate (200ms), $04=sendAtFastRate (25ms)
+				if((module=gd.get_module(cf->can_id+(cf->can_id>0x7DF?-0x1F8:0x300)))!=NULL && module->isResponder()){
+					gd.getCan()->periodic_end(); // stop sending GMLAN stuff
+					resp.clear();
+					if(cf->data[0]==0x02){ _sendall=true; resp.push_back(module->getPacketsByBytePos(0, cf->data[2])[0]); } // #02AA00
+					else {
+						int j, i=cf->data[offset]-2;
+						vector<CanFrame *> a;
+						for(vector<struct canfd_frame>::iterator it = qry.begin(); it != qry.end() && i>0; ++it){
+							if(it==qry.begin()) j=3+offset; else j=1;
+							for(; i>0 && j<8; j++, i--){
+								a=module->getPacketsByBytePos(0, it->data[j]);
+								if(a.size()>0) gd.getCan()->periodic_add(a[0]);
+							}
+						}
+						// and now we must repeat that until #02AA00 comes
+						if(cf->data[2+offset]==2) gd.getCan()->periodic_start(1000);
+						else if(cf->data[2+offset]==3) gd.getCan()->periodic_start(200);
+						else if(cf->data[2+offset]==4) gd.getCan()->periodic_start(25);
+					}
+				}
 				break;
 			case 0xAE:
 				ss << hex << cf->can_id << ": (GMLAN) Device Control";
@@ -785,6 +844,20 @@ vector <CanFrame *>Module::getResponse(struct canfd_frame *cf, bool fuzz) {
 	if(doFuzz) {
 		resp = fuzzResp(resp, cf);
 	}
+
+	if(resp.size()>1 && ( _sendall==true || ( (gd.multiple_responses_7df && cf->can_id==0x7df) || (_protocol==BMW_P && cf->data[0]==0xDF) ) ) ){ // multiple different packets (eg broadcast response)
+		// maybe some of them are multipackets. split.
+		vector<CanFrame*>::iterator it=resp.begin();
+		for(; it != resp.end(); it++) if(is_first_multipacket((*it), _offset)) break; // search for multi-packets
+		if(it!=resp.end()){
+			// std::move(response.begin()+std::distance(response.begin(), it)+1, resp.end(), std::back_inserter(*module->queue_get())); // move part of responses to queue
+			queue_set(resp, std::distance(resp.begin(), it)+1);
+			resp.erase(resp.begin()+std::distance(resp.begin(), it)+1, resp.end());
+		}
+		_sendall=true;
+	}
+	if(resp.size()==0) _sendall=false;
+
 	if(ss.str().size() > 0) gd.Msg(ss.str());
 	return resp;
 }

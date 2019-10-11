@@ -104,8 +104,6 @@ using namespace std;
 class GameData;
 class Module;
 
-extern GameData gd;
-
 class Gui {
   public:
   Gui();

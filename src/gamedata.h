@@ -2,17 +2,10 @@
 #define UDS_GAMEDATA_H
 
 #include <cstddef>
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
 #include <vector>
-#include <list>
+#include <iomanip>
 #include "module.h"
-#include "math.h"
-//#ifdef SDL
 #include "gui.h"
-//#endif
 #include "can.h"
 
 using namespace std;
@@ -21,15 +14,13 @@ using namespace std;
 #define MODE_LEARN  1
 #define MODE_ATTACK 2
 
-#define CONFIDENCE_THRESHOLD 0.6 // 60%
-
 #define CAN_DELAY 1000 * 10
 
 enum Car_Type {
 	NONE, // scan all possibilities
 	AUTO, // fist match defines car type (default)
 	VAG,
-	//BMW,
+	BMW,
 	GM,
 	GM2,
 	CHRYSLER,
@@ -76,7 +67,11 @@ class GameData
 	char conf_file[61];
 	int autoresponse=0; // respond 0x11 to every 0x22 packet
 	int autowrite=0;	// confirm every 0x2E packet
+	unsigned int min_packet_addr=0;	// filter out packets where addr < min_packet_addr<<8
+	int multiple_responses_7df=0;	// allow responses from different addresses to 0x7df request
 	Car_Type car_type=AUTO;
+	int confidence_threshold=60; // default 60%
+	bool config_repair_frame=true;
   private:
     void HandleSim(canfd_frame *, int);
 	void Handle_TP20(canfd_frame *, Module *);
@@ -90,8 +85,7 @@ class GameData
     int _lastTicks = 0;
     Can *canif = NULL;
     Gui *_gui = NULL;
-	canfd_frame multiquery; // buffer first packet to play it later
-	int multiquery_cnt=0;
+	vector<canfd_frame> multiquery; // buffer query to play it later
 	Protocol _lastprotocol=UDS;
 	unsigned int _tp20_last_requester=0; // sometimes ecu uses same response address for different request addresses (0x300 -> 0x4C1, 0x300 -> 0x4C3)
 	unsigned int _tp20_last_responder=0;

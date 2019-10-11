@@ -15,8 +15,9 @@
 
 #define BUFSZ (sizeof("(1345212884.318850)") + IFNAMSIZ + 4 + CL_CFSZ + COMMENTSZ) /* for one line in the logfile */
 
-LogParser::LogParser() {
+extern GameData gd;
 
+LogParser::LogParser() {
 }
 
 LogParser::~LogParser() {
@@ -57,8 +58,7 @@ string LogParser::processNext() {
 		  printf("%s\n",buf);
 		  return "incorrect line format in logfile ("+to_string(line)+")";
       }
-      gd.getCan()->parse_canframe(ascframe, &cf);
-      gd.processPkt(&cf);
+      if((gd.getCan()->parse_canframe(ascframe, &cf))!=0) gd.processPkt(&cf);
       if(gd.getVerbose()>1) return "Packet: " + string(ascframe);
 	  else return "";
     }

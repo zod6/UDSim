@@ -3,8 +3,6 @@
 
 #include "udsim.h"
 
-extern GameData gd;
-
 void processInput(void);
 void set_conio_terminal_mode();
 

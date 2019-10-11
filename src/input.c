@@ -5,10 +5,12 @@
 #include <termios.h>
 #include "input.h" 
 
-#define INPUT_LEN 400
+#define INPUT_LEN 500
 struct termios orig_termios;
 char input[INPUT_LEN+1];
 int input_pos=0;
+
+extern GameData gd;
 
 void processInput(){
 	unsigned char c;
@@ -66,8 +68,16 @@ void processInput(){
 					if(mod[3]=='\n') mod[3]=0; else mod[8]=0;
 					Module *module = gd.get_module(strtol(mod,NULL,16), src);
 					if(module){
-						module->addPacket_front(input+offset);
-						cout << "packet added: " << input+offset << " (" << std::hex << src << ")" << endl;
+						if(gd.getCan()->periodic_get().size()>0 && !offset && input[4]>0x31){ // GMLAN periodic response active
+							CanFrame *cf = new CanFrame(input+offset);
+							gd.getCan()->periodic_end();
+							gd.getCan()->periodic_add(cf);
+							gd.getCan()->periodic_add(cf->queue); // if exists
+							cout << "GMLAN periodic added: " << input+offset << " (" << std::hex << src << ")" << endl;
+						} else { // normal packet
+							module->addPacket_front(input+offset);
+							cout << "packet added: " << input+offset << " (" << std::hex << src << ")" << endl;
+						}
 					}
 				}
 				input_pos=0;

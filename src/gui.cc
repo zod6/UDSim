@@ -1,6 +1,8 @@
 #ifdef SDL
 #include "gui.h"
 
+extern GameData gd;
+
 Gui::Gui() {
   int i;
   for(i = 0; i < MAX_LOG_ENTRIES; i++) { logbuff[i] = NULL; }
