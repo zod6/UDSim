@@ -38,7 +38,7 @@ void Module::addPacket(struct canfd_frame *cf) {
 	bool dup_found = false;
 	int offset=0;
 
-    if(_protocol==TP20 && cf->can_id>0x200 && cf->data[1]!=0xD0){ addPacket_TP20(cf); return; } // handle 0x200 and it's response like normal packet
+    if(_protocol==TP20 && cf->can_id>0x200 && !(cf->data[0]==0x00 && cf->data[1]==0xD0)){ addPacket_TP20(cf); return; } // handle 0x200 and it's response like normal packet
 
 	offset=_offset;
 	if(_repair_frame!=NULL && (cf->data[0+offset]&0xF0) == 0x20){
@@ -89,6 +89,7 @@ void Module::addPacket_TP20(struct canfd_frame *cf) {
 	CanFrame *old_frame;
 	bool dup_found = false;
 	int i;
+
 	if(cf->len==1) return; // ignore ACK
 	if(cf->len>=3 && !memcmp(cf->data, "\x30\x00\x05", 3)) return; // ignore xxx#300005.... // what is it? broadcast? appears randomly
 
@@ -105,7 +106,7 @@ void Module::addPacket_TP20(struct canfd_frame *cf) {
 		for(i=1; i<cf->len; i++) if((*it)->data[i]!=cf->data[i]) break;
 		if(i==cf->len){ dup_found=true; break; }
 	}
-	if(!dup_found) {
+	if(!dup_found || _expect_consecutive_frame==true) {
 		if((cf->data[0]&0xF0)<0x40 && _expect_consecutive_frame==true && can_history.back()) can_history.back()->queue.push_back(new CanFrame(cf)); // data packet
 		else can_history.push_back(new CanFrame(cf));
 		if( cf->can_id>=0x200 && is_tp20_multipacket(cf) ) _expect_consecutive_frame=true; // data packet, more to follow
@@ -631,6 +632,10 @@ vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuz
 			case 0x12:
 				ss << hex << cf->can_id << ": (GMLAN) Read Failure Record";
 				break;
+			case 0x13:
+				ss << hex << cf->can_id << ": 0x13 ??"; // Lexus
+				if (resp.size() == 0) resp = Module::fetchHistory(cf, 1);
+				break;
 			case 0x14:
 				ss << hex << cf->can_id << ": Clear DTC";
 				break;
@@ -656,20 +661,20 @@ vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuz
 			case 0x20:
 				ss << hex << cf->can_id << ": (GMLAN) Restart Communications";
 				break;
-			case 0x21: // only TP20?
+			case 0x21:
 				ss << hex << cf->can_id << ": KWP2000 readDataByLocalIdentifier ";
 				if(resp.size() == 0 && gd.autoresponse){ // todo: TP20 autoresponses
 					Module *responder = gd.get_module(getPositiveResponder(cf));
 					if(responder!=NULL){
 						char str[30];
-						snprintf(str, 23, "%03X#%s0361%02X01010101%s", responder->getArbId(), prefix, cf->data[2+offset], (_offset?"01":""));
+						snprintf(str, 23, "%03X#%s0361%02X01010101%s", responder->getArbId(), prefix, cf->data[2+offset], (_offset?"":"01"));
 						resp.push_back(new CanFrame(str));
 					}
 				}
 				if (resp.size() == 0 && getNegativeResponder(cf) > -1) {
 					if(_protocol==TP20) errPkt << hex << getNegativeResponder(cf) << "#1880037F2178"; // porche: #19037F21784A0002 ??
-					else if(_protocol==BMW_P) errPkt << hex << getNegativeResponder(cf) << "#F1037F2231"; // BMW
-					else errPkt << hex << getNegativeResponder() << "#" << prefix << "037F2231AAAAAA" << (_offset?"":"AA");
+					else if(_protocol==BMW_P) errPkt << hex << getNegativeResponder(cf) << "#F1037F2131"; // BMW
+					else errPkt << hex << getNegativeResponder() << "#" << prefix << "037F2131AAAAAA" << (_offset?"":"AA");
 					resp.push_back(new CanFrame(errPkt.str()));
 				}
 				break;
@@ -680,7 +685,7 @@ vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuz
 					Module *responder = gd.get_module(getPositiveResponder(cf));
 					if(responder!=NULL){
 						char str[30];
-						snprintf(str, 23, "%03X#%s0462%02X%02X010101%s", responder->getArbId(), prefix, cf->data[2+offset], cf->data[3+offset], (_offset?"01":""));
+						snprintf(str, 23, "%03X#%s0462%02X%02X010101%s", responder->getArbId(), prefix, cf->data[2+offset], cf->data[3+offset], (_offset?"":"01"));
 						resp.push_back(new CanFrame(str));
 					}
 				}
@@ -780,6 +785,10 @@ vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuz
 			case 0x3E:
 				ss << hex << cf->can_id << ": Tester Present";
 				if(resp.size()==0) resp = Module::fetchHistory(cf, 1);
+				if(resp.size()==0 && getPositiveResponder(cf)>-1 && cf->data[0]==1 && gd.autoresponse){
+					errPkt << hex << getPositiveResponder() << "#017EAAAAAAAAAAAA";
+					resp.push_back(new CanFrame(errPkt.str()));
+				}
 				break;
 			case 0x83:
 				ss << hex << cf->can_id << ": Access Timing";
@@ -802,6 +811,9 @@ vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuz
 			case 0xA5:
 				ss << hex << cf->can_id << ": (GMLAN) Programing Mode";
 				break;
+			case 0xA8:
+				ss << hex << cf->can_id << ": 0xA8 ??"; // Lexus
+				break;
 			case 0xA9:
 				ss << hex << cf->can_id << ": (GMLAN) Read Diag Info"; // DTC
 				if((module=gd.get_module(cf->can_id+(cf->can_id>0x7DF?-0x1F8:0x300)))!=NULL && module->isResponder()){
@@ -810,13 +822,19 @@ vector <CanFrame *>Module::getResponse(vector <struct canfd_frame> qry, bool fuz
 				break;
 			case 0xAA: // GMW3110-2010.pdf, page 213
 				ss << hex << cf->can_id << ": (GMLAN) Read Data by ID";
+				if(gd.disable_gmlan==true) break;
+				// todo: garbage at moment. must find another way
+				// https://github.com/openvehicles/Open-Vehicle-Monitoring-System/blob/master/vehicle/Car%20Module/VoltAmpera/voltampera_canbusnotes.txt
+				// set up requests: 254#042CFE434F000000 (qry 434F) -> 654#026CFEAAAAAAAAAA
 				// 254#05AA03FEFDFC0000 -> 554#FE000001AA007242,554#FD00000002000001,554#FC73200000000000; must repeat these until next #02AA00 comes
 				// byte2: $02=sendAtSlowRate (1000ms), $03=sendAtMediumRate (200ms), $04=sendAtFastRate (25ms)
 				if((module=gd.get_module(cf->can_id+(cf->can_id>0x7DF?-0x1F8:0x300)))!=NULL && module->isResponder()){
 					gd.getCan()->periodic_end(); // stop sending GMLAN stuff
 					resp.clear();
-					if(cf->data[0]==0x02){ _sendall=true; resp.push_back(module->getPacketsByBytePos(0, cf->data[2])[0]); } // #02AA00
-					else {
+					if(cf->data[0]==0x02){ // #02AA00 (stop sending)
+						//_sendall=true; // why if we use only first packet?
+						if(module->getPacketsByBytePos(0, cf->data[2]).size()>0) resp.push_back(module->getPacketsByBytePos(0, cf->data[2])[0]);
+					} else {
 						int j, i=cf->data[offset]-2;
 						vector<CanFrame *> a;
 						for(vector<struct canfd_frame>::iterator it = qry.begin(); it != qry.end() && i>0; ++it){

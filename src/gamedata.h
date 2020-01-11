@@ -72,6 +72,7 @@ class GameData
 	Car_Type car_type=AUTO;
 	int confidence_threshold=60; // default 60%
 	bool config_repair_frame=true;
+	bool disable_gmlan=false;
   private:
     void HandleSim(canfd_frame *, int);
 	void Handle_TP20(canfd_frame *, Module *);

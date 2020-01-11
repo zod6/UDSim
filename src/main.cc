@@ -21,6 +21,7 @@ void Usage(string msg) {
  cout << "     -x                  send 'confirm' to every 'write data' request (can be toggled when running)" << endl;
  cout << "     -m min_packet_addr. filter out packets where address < (min_packet_addr<<8)" << endl;
  cout << "     -o <0-100>          confidence threshold (percentage of UDS packages to keep module. default 60%)" << endl;
+ cout << "     -a                  disable GMLAN" << endl;
  cout << "     -r                  Don't repair frames" << endl;
  cout << "     -v                  Increase verbosity" << endl;
  cout << endl;
@@ -40,7 +41,7 @@ int main(int argc, char *argv[]) {
 
 	cout << "UDSim " << VERSION << endl;
 
-	while ((opt = getopt(argc, argv, "vfc:l:gt:m:o:7rh?")) != -1) {
+	while ((opt = getopt(argc, argv, "vfc:l:gt:m:o:7arh?")) != -1) {
 		switch(opt) {
 			case 'v':
 				verbose++;
@@ -57,6 +58,7 @@ int main(int argc, char *argv[]) {
 				log.setLogFile(optarg);
 				process_log = true;
 				gd.setMode(MODE_LEARN);
+				cout << endl;
 				break;
 			case 'f':
 				gui.setFullscreen(true);
@@ -88,15 +90,23 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'm':
 				gd.min_packet_addr=atoi(optarg);
+				printf("filter: addr < 0x%3X\n", gd.min_packet_addr<<8);
 				break;
 			case 'o':
 				gd.confidence_threshold=atoi(optarg);
+				cout << "confidence threshold: " << gd.confidence_threshold <<  endl;
 				break;
 			case '7':
 				gd.multiple_responses_7df=1; // not needed. yet
+				cout << "multiple responses disabled" << endl;
+				break;
+			case 'a':
+				gd.disable_gmlan=true;
+				cout << "GMLAN disabled" << endl;
 				break;
 			case 'r':
 				gd.config_repair_frame=false;
+				cout << "frame repair disabled" << endl;
 				break;
 			default:
 				Usage("Help Menu");
@@ -123,8 +133,6 @@ int main(int argc, char *argv[]) {
 	cout << "'x': confirm every write data reponse" << endl;
 	cout << "'q': quit" << endl << endl;
 	cout << "to define new responses: '[src,]640#f1100862d5500001,640#f121000003fffff'" << endl << endl;
-
-	if(gd.min_packet_addr) printf("filter: addr < 0x%3X\n\n", gd.min_packet_addr<<8);
 
 	gui.setVerbose(verbose);
 	if(!nogui){
